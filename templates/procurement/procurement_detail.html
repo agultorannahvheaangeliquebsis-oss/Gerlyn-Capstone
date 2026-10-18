@@ -142,11 +142,9 @@
   detail component family"). Procurement has four fact cards worth keeping,
   not two, so each column is its own od-workspace (a plain vertical stack —
   display:flex/flex-direction:column/gap, already generic) rather than a
-  bare card: Delivery & receipt validation pairs with the Funding source
-  form on the left (both about how/when this order is fulfilled); Order
-  Details pairs with Financial Summary on the right (both reference facts
-  about the order itself), mirroring Order Console's own Order
-  Details/Financial Summary pairing. The nested od-workspace still picks up
+  bare card: the Funding source form sits alone on the left, and Delivery &
+  receipt validation, Order Details and Financial Summary stack on the
+  right (the fact cards about the order). The nested od-workspace still picks up
   gerlyn.css's own margin-bottom though, so it needs zeroing here the same
   way .od-workspace > .od-card already is.
   {% endcomment %}
@@ -158,6 +156,11 @@
   the Order Items card below it.
   {% endcomment %}
   .od-side { margin-bottom: var(--s4); }
+  {% comment %}
+  Funding source form only renders for users who can edit it; without it the
+  right-hand stack would otherwise sit alone in half the width.
+  {% endcomment %}
+  .od-side.pd-side-solo { grid-template-columns: 1fr; }
 
   {% comment %}
   Reschedule form folded into the Delivery & receipt validation card
@@ -312,7 +315,7 @@ they're actually allowed to submit.
       {% endfor %}
     </div>
 
-    {% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Communicated/Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
+    {% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
       {% if user.role != "SUPPLIER" %}
     {% comment %}
     One form, two outcomes, and only one of them is destructive — hence
@@ -362,7 +365,7 @@ they're actually allowed to submit.
     {% endif %}
   </div>
 
-  {% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Communicated/Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
+  {% if module_actions.procurement.edit and procurement.status == "Draft" or module_actions.procurement.edit and procurement.status == "Ordered" or module_actions.procurement.edit and procurement.status == "Incoming" or module_actions.procurement.edit and procurement.status == "Partially Received" %}
     {% if user.role != "SUPPLIER" %}
   <p class="gv-meta od-note">
     {% if procurement.status == "Draft" %}
@@ -416,7 +419,7 @@ decision (agree price/date by phone or message, instead of through the
 in-app negotiation flow), not a second step everyone must also fill in.
 Without this, Approved/Pending Owner Review/Pending Supplier Review/Terms
 Agreed all render this form AND the negotiation card at once (can_transition_to
-COMMUNICATED and negotiation_actionable's eligible statuses are the same
+ORDERED and negotiation_actionable's eligible statuses are the same
 four), with nothing saying they're either/or. Same <details>-as-disclosure
 shape as .status-select above and .faq-item (accounts/help_center.html);
 no JS needed.
@@ -463,16 +466,16 @@ no JS needed.
         <input id="communication-note" type="text" name="communication_note" maxlength="300" placeholder="e.g. Confirmed by Ana through Viber">
       </div>
       <div class="pd-manual-comm-submit mt-2">
-        <button type="submit" class="btn btn-primary">Mark Communicated/Ordered</button>
+        <button type="submit" class="btn btn-primary">Mark Ordered</button>
       </div>
     </form>
   </div>
 </details>
 {% endif %}
 
-{% if procurement.status == "Communicated/Ordered" %}
+{% if procurement.status == "Ordered" %}
 <div class="banner banner-info">
-  <strong>PO communicated outside the system.</strong>
+  <strong>PO ordered outside the system.</strong>
   {{ procurement.get_communication_method_display }}{% if procurement.communicated_at %} on {{ procurement.communicated_at|date:"Y-m-d H:i" }}{% endif %}.
   {% if procurement.supplier_acknowledged_at %}The supplier acknowledged it in the portal.{% else %}Supplier portal acknowledgement is optional; delivery can still be received and verified.{% endif %}
   {% if procurement.communication_note %}<div class="gv-meta mt-1">{{ procurement.communication_note }}</div>{% endif %}
@@ -632,10 +635,10 @@ banner rather than a full card (see .pd-negotiate-banner above).
 </div>
 {% endif %}
 
-{% if procurement.status == "Communicated/Ordered" and user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
+{% if procurement.status == "Ordered" and user.role == "SUPPLIER" and procurement.supplier_id == user.id %}
 <div class="card card-pad od-card">
   <h3>Acknowledge purchase order</h3>
-  <p class="gv-meta">The store recorded this PO as communicated. Acknowledgement helps them track it, but delivery processing does not depend on it.</p>
+  <p class="gv-meta">The store recorded this PO as ordered. Acknowledgement helps them track it, but delivery processing does not depend on it.</p>
   <form method="POST" action="{% url 'procurement_supplier_confirm' procurement.pk %}">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Acknowledge PO</button>
@@ -651,8 +654,38 @@ banner rather than a full card (see .pd-negotiate-banner above).
 </div>
 {% endif %}
 
-{# ---- workspace: Delivery/Funding and Order Details/Financial Summary side by side ---- #}
-<div class="od-side">
+{# ---- workspace: Funding source on the left; Delivery, Order Details and Financial Summary stacked on the right ---- #}
+<div class="od-side{% if not can_edit_funding %} pd-side-solo{% endif %}">
+  {% if can_edit_funding %}
+  <div class="od-workspace">
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Funding source</h3>
+      <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
+        {% csrf_token %}
+        <div class="stack">
+          <div class="field">
+            <label for="fund-source">Funding source</label>
+            <select id="fund-source" name="funding_source" required>
+              <option value="">Choose…</option>
+              {% for value, label in funding_choices %}
+                <option value="{{ value }}"{% if procurement.funding_source == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="fund-note">Note <span class="gv-meta">— required if Other is selected</span></label>
+            <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
+          </div>
+        </div>
+        <div class="mt-4" style="display:flex; justify-content:flex-end;">
+          <button type="submit" class="btn btn-primary">Save funding source</button>
+        </div>
+        <p class="gv-meta mt-2 mb-0">Can be changed until the supplier and buyer agree on terms.</p>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="od-workspace">
     <div class="card card-pad od-card">
       <h3 class="od-h">Delivery &amp; receipt validation</h3>
@@ -682,36 +715,6 @@ banner rather than a full card (see .pd-negotiate-banner above).
       {% endif %}
     </div>
 
-    {% if can_edit_funding %}
-    <div class="card card-pad od-card">
-      <h3 class="od-h">Funding source</h3>
-      <form method="POST" action="{% url 'procurement_set_funding' procurement.pk %}">
-        {% csrf_token %}
-        <div class="stack">
-          <div class="field">
-            <label for="fund-source">Funding source</label>
-            <select id="fund-source" name="funding_source" required>
-              <option value="">Choose…</option>
-              {% for value, label in funding_choices %}
-                <option value="{{ value }}"{% if procurement.funding_source == value %} selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="field">
-            <label for="fund-note">Note <span class="gv-meta">— required if Other is selected</span></label>
-            <input id="fund-note" type="text" name="funding_note" maxlength="200" value="{{ procurement.funding_note }}">
-          </div>
-        </div>
-        <div class="mt-4" style="display:flex; justify-content:flex-end;">
-          <button type="submit" class="btn btn-primary">Save funding source</button>
-        </div>
-        <p class="gv-meta mt-2 mb-0">Can be changed until the supplier and buyer agree on terms.</p>
-      </form>
-    </div>
-    {% endif %}
-  </div>
-
-  <div class="od-workspace">
     <div class="card card-pad od-card">
       <h3 class="od-h">Order Details</h3>
       <dl class="od-facts">

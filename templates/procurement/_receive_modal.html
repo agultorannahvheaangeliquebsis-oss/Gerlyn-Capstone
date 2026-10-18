@@ -151,8 +151,16 @@ one per row.
 
     <div class="modal-foot">
       <button type="button" class="btn" id="cancel-receive-modal">Cancel</button>
-      <button type="submit" form="receive-form" name="delivery_outcome" value="rejected" class="btn btn-danger">Record Failed / Rejected</button>
-      <button type="submit" form="receive-form" name="delivery_outcome" value="accepted" class="btn btn-primary">Confirm Receipt &amp; Update Stock</button>
+      <details class="action-menu">
+        <summary class="btn btn-primary">
+          Record Receipt
+          <svg class="action-menu-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="action-menu-panel">
+          <button type="submit" form="receive-form" name="delivery_outcome" value="accepted" class="action-menu-item">Confirm Receipt &amp; Update Stock</button>
+          <button type="submit" form="receive-form" name="delivery_outcome" value="rejected" class="action-menu-item action-menu-item--danger">Record Failed / Rejected</button>
+        </div>
+      </details>
     </div>
   </div>
 </div>

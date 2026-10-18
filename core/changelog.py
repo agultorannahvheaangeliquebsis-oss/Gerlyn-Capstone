@@ -12,6 +12,13 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.36.4',
+        'date': '2026-10-18',
+        'changes': [
+            {'text': 'Receive Delivery: Confirm Receipt and Record Failed / Rejected now sit in a single Record Receipt dropdown', 'internal': True},
+        ],
+    },
+    {
         'version': '1.36.3',
         'date': '2026-10-13',
         'changes': [

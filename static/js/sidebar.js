@@ -136,7 +136,7 @@
      detail-modal's innerHTML swap (procurement_list.html's
      data-detail-modal) — this script only runs once, but a document-level
      listener doesn't care when its target entered the DOM. */
-  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open], .bill-more[open], .row-menu[open]';
+  var AUTOCLOSE_SEL = '.more-menu[open], .branch-switch[open], .avatar-menu[open], .status-select[open], .bill-more[open], .row-menu[open], .action-menu[open]';
   document.addEventListener('click', function (e) {
     document.querySelectorAll(AUTOCLOSE_SEL).forEach(function (d) {
       if (!d.contains(e.target)) d.open = false;

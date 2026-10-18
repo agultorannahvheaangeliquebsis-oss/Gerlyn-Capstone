@@ -64,7 +64,7 @@ not a status, so it keeps the unclassed neutral default.
   {# Pending Owner Review, Pending Supplier Review, Terms Agreed — see _procurement_list_context. #}
   <a class="filter-tab{% if status_filter == 'Negotiating' %} active{% endif %}" href="?{{ filter_qs }}&status=Negotiating">Negotiating <span class="count count-warn">{{ counts.negotiating }}</span>{% if counts.pending_owner_review %}<span class="count count-danger" title="Waiting on your response">{{ counts.pending_owner_review }} for you</span>{% endif %}</a>
   <a class="filter-tab{% if status_filter == 'Incoming' %} active{% endif %}" href="?{{ filter_qs }}&status=Incoming">Incoming <span class="count count-info">{{ counts.incoming }}</span></a>
-  <a class="filter-tab{% if status_filter == 'Communicated/Ordered' %} active{% endif %}" href="?{{ filter_qs }}&status=Communicated%2FOrdered">Communicated/Ordered <span class="count count-info">{{ counts.communicated }}</span></a>
+  <a class="filter-tab{% if status_filter == 'Ordered' %} active{% endif %}" href="?{{ filter_qs }}&status=Ordered">Ordered <span class="count count-info">{{ counts.ordered }}</span></a>
   <a class="filter-tab{% if status_filter == 'Partially Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Partially%20Received">Partially Received <span class="count count-warn">{{ counts.partially_received }}</span></a>
   <a class="filter-tab{% if status_filter == 'Received' %} active{% endif %}" href="?{{ filter_qs }}&status=Received">Received <span class="count count-ok">{{ counts.received }}</span></a>
   <a class="filter-tab{% if status_filter == 'Cancelled' %} active{% endif %}" href="?{{ filter_qs }}&status=Cancelled">Cancelled <span class="count count-danger">{{ counts.cancelled }}</span></a>
@@ -101,7 +101,7 @@ not a status, so it keeps the unclassed neutral default.
         </td>
         <td data-label="Action">
           <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'procurement_detail' p.pk %}"
-               data-detail-modal="Purchase Order" title="View" aria-label="View purchase order {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
+               title="View" aria-label="View purchase order {{ p.po_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
       {% empty %}

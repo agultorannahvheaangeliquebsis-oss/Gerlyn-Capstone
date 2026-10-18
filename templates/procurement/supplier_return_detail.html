@@ -6,58 +6,128 @@
 {% block extra_css %}
 <style>
   {% comment %}
-  Return Progress: the same display-only stepper family as Purchase Orders'
-  Order Progress / Order Console's Order Progress (see gerlyn.css's "Order/
-  billing detail component family" — .order-progress-*, .od-card, .od-facts).
+  Supplier Return Detail's own rules, all prefixed sr- and page-scoped here
+  rather than added to gerlyn.css. The shared families this page composes with
+  and does not redefine: .card, .pill, .btn, .tag, .gv-table, .od-card, .od-h,
+  .od-sub and the .order-progress-* stepper (see gerlyn.css's "Order/billing
+  detail component family").
+
+  Layout: a Return Progress card on top (stepper, then the one thing the
+  return is waiting for and the controls that do it), and below it a main
+  column (replacement form, items, receipts) beside a side column (return
+  facts, timeline). The side-by-side split is only drawn on the full page;
+  inside the ?modal=1 overlay, which is narrower than the viewport the media
+  query measures, everything stays in one column.
+
   Rejected/Cancelled both stop the happy path rather than sitting on it, so
   they read as a banner instead of a dot, same as a cancelled PO or a
   cancelled sales order.
   {% endcomment %}
-  .rd-stopped-banner {
-    flex: 1 1 320px; min-width: 0;
-    background: var(--danger-bg); border: 1px solid var(--danger-fg);
-    border-radius: var(--r-card); padding: var(--s4);
-  }
-  .rd-stopped-banner h3 { margin: 0 0 4px; }
-  .rd-stopped-banner p { margin: 0; }
 
-  {% comment %}
-  Actions share the stepper's row (.order-progress-row, from the same
-  component family) instead of sitting in their own card beside Return
-  details — same placement as Order Console's status control beside Order
-  Progress. At most two of ship/settle/cancel ever apply at once (Acknowledged
-  is the only status with two), so each renders as one compact inline form —
-  label-less inputs (sr-only label, placeholder) and a button — rather than
-  the stacked, captioned fields a standalone card had room for.
-  {% endcomment %}
-  .od-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s3); flex: 0 1 auto; }
-  .od-action-inline { display: flex; align-items: center; gap: 8px; }
-  .od-action-inline input[type=text], .od-action-inline input[type=number] { min-height: var(--touch); }
+  .sr-sub { margin: 4px 0 0; font-size: 14.5px; color: var(--ink-600); }
+  .sr-sub .sr-dot { margin: 0 6px; color: var(--ink-400); }
+
+  .sr-progress .order-progress-row { margin-top: var(--s2); }
+  .sr-progress .order-progress-track { flex: 1 1 100%; max-width: 820px; }
+
+  .sr-stopped {
+    flex: 1 1 100%; min-width: 0;
+    background: var(--danger-bg); border: 1px solid #E6B3AE;
+    border-radius: var(--r-card); padding: var(--s3) var(--s4);
+  }
+  .sr-stopped h3 { margin: 0 0 4px; color: var(--danger-fg); }
+  .sr-stopped p { margin: 0; }
+
+  .sr-next {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: var(--s3) var(--s4); margin-top: var(--s4); padding-top: var(--s4);
+    border-top: 1px solid var(--line-soft);
+  }
+  .sr-next-text { flex: 1 1 280px; min-width: 0; margin: 0; font-size: 14.5px; color: var(--ink-700); max-width: 68ch; }
+  .sr-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2) var(--s3); flex: 0 1 auto; }
+  .sr-action { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+  .sr-action input[type=text], .sr-action input[type=number] { min-height: var(--touch); }
+  .sr-action .sr-note { width: 230px; }
+  .sr-action .sr-amount { width: 150px; text-align: right; }
+  .sr-action .sr-ref { width: 170px; }
+
+  .sr-grid { display: flex; flex-direction: column; gap: var(--s4); }
+  .sr-main, .sr-side { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+  .sr-grid .card { margin: 0; }
+  @media (min-width: 1040px) {
+    .sr-grid--split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+  }
+
+  .sr-card-head {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: var(--s1) var(--s3); padding: var(--s4); border-bottom: 1px solid var(--line);
+  }
+  .sr-card-head h3 { margin: 0; }
+  .sr-card-head p { flex: 1 1 100%; margin: 0; }
+  .sr-card-foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s3); padding: var(--s4); border-top: 1px solid var(--line); }
+  .sr-card-foot .field { margin: 0; }
+  .sr-qty { width: 100px; text-align: right; }
+
+  .sr-rows { margin: 0; }
+  .sr-rows > div {
+    display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4);
+    padding: 10px 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .sr-rows > div:first-child { padding-top: 0; }
+  .sr-rows > div:last-child { border-bottom: 0; padding-bottom: 0; }
+  .sr-rows dt { flex: none; font-size: 13.5px; color: var(--ink-600); }
+  .sr-rows dd { margin: 0; min-width: 0; text-align: right; font-size: 14.5px; color: var(--ink-900); overflow-wrap: anywhere; }
+  .sr-rows .sr-block { display: block; }
+  .sr-rows .sr-block dd { margin-top: 4px; text-align: left; }
+
+  .sr-log { list-style: none; margin: 0; padding: 0; display: grid; }
+  .sr-log li { position: relative; padding: 0 0 var(--s3) 22px; font-size: 14.5px; }
+  .sr-log li::before {
+    content: ""; position: absolute; left: 2px; top: 5px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--brand);
+  }
+  .sr-log li::after {
+    content: ""; position: absolute; left: 6px; top: 16px; bottom: 0; width: 1px; background: var(--line);
+  }
+  .sr-log li:last-child { padding-bottom: 0; }
+  .sr-log li:last-child::after { display: none; }
+  .sr-log strong { display: block; font-weight: 700; color: var(--ink-900); }
+  .sr-log .sr-when { display: block; font-size: 13.5px; color: var(--ink-600); }
+
+  .sr-items td.num, .sr-items th.num { font-variant-numeric: tabular-nums; }
+  .sr-items .sr-sub-line { display: block; font-size: 13px; color: var(--ink-600); }
+
   @media (max-width: 560px) {
-    .od-actions, .od-action-inline { width: 100%; }
-    .od-action-inline input { flex: 1 1 auto; min-width: 0; }
-    .od-action-inline .btn { flex: none; }
+    .sr-actions, .sr-action { width: 100%; justify-content: stretch; }
+    .sr-action input { flex: 1 1 140px; min-width: 0; width: auto; }
+    .sr-action .btn, .sr-actions > form > .btn { flex: 1 1 auto; }
+    .sr-rows > div { flex-direction: column; gap: 2px; }
+    .sr-rows dd { text-align: left; }
   }
 </style>
 {% endblock %}
 
 {% block content %}
+{% with supplier_name=ret.supplier.supplier_profile.supplier_name|default:ret.supplier.username %}
 <div class="page-head">
   <div>
     <a class="back-link" href="{% url 'supplier_return_list' %}">Supplier Returns</a>
     <h1 class="mt-2">{{ ret.return_number }} {% include "partials/_return_status_pill.html" with status=ret.status %}</h1>
+    <p class="sr-sub">
+      {% if ret.supplier %}{{ supplier_name }}<span class="sr-dot" aria-hidden="true">&middot;</span>{% endif %}{{ ret.procurement.po_number }}<span class="sr-dot" aria-hidden="true">&middot;</span>{{ ret.branch.branch_name|default:"No branch" }}
+    </p>
   </div>
 </div>
 
-{# ---- top: Return Progress as a full-width banner, the stepper/banner and the actions that move it share one row ---- #}
-<div class="card card-pad od-card">
+{# ---- Return Progress: the stepper, then what the return is waiting for and the controls that move it ---- #}
+<div class="card card-pad od-card sr-progress">
   <h3 class="od-h">Return Progress</h3>
   <div class="order-progress-row">
     {% if return_progress.stopped %}
-    <div class="rd-stopped-banner">
+    <div class="sr-stopped">
       {% if ret.status == "Rejected" %}
       <h3>The supplier rejected this return.</h3>
-      <p class="gv-meta mb-0">{% if ret.supplier_note %}Reason: {{ ret.supplier_note }}. {% endif %}No stock has moved — cancel it, or <a href="{% url 'procurement_detail' ret.procurement.pk %}#returns">raise a new one</a>.</p>
+      <p class="gv-meta mb-0">{% if ret.supplier_note %}Reason: {{ ret.supplier_note }}. {% endif %}No stock has moved &mdash; cancel it, or <a href="{% url 'procurement_detail' ret.procurement.pk %}#returns">raise a new one</a>.</p>
       {% else %}
       <h3>{{ ret.return_number }} was cancelled</h3>
       <p class="gv-meta mb-0">No stock moved on this return.</p>
@@ -73,151 +143,191 @@
       {% endfor %}
     </div>
     {% endif %}
+  </div>
+
+  {% if not return_progress.stopped or can_cancel %}
+  <div class="sr-next">
+    {% if not return_progress.stopped %}
+    <p class="sr-next-text">
+      {% if ret.status == "Requested" %}Waiting for the supplier to acknowledge or reject this return. No stock has moved yet.
+      {% elif ret.status == "Acknowledged" %}The supplier acknowledged this return. Ship the goods back to take them out of warehouse stock.
+      {% elif ret.status == "Shipped" %}The goods have been sent back. Settle this return one of two ways: record a credit note, or receive replacement goods below.
+      {% elif ret.status == "Settled" %}This return is settled. Nothing further is needed.
+      {% endif %}
+    </p>
+    {% endif %}
 
     {% if can_cancel or can_ship or can_settle %}
-    <div class="od-actions">
+    <div class="sr-actions">
       {% if can_ship %}
-      <form method="POST" action="{% url 'supplier_return_ship' ret.pk %}" class="od-action-inline"
+      <form method="POST" action="{% url 'supplier_return_ship' ret.pk %}" class="sr-action"
             data-confirm="The returned units are taken out of warehouse stock now. This can't be undone."
             data-confirm-title="Ship these goods back?"
             data-confirm-variant="warn"
             data-confirm-ok="Ship back">
         {% csrf_token %}
         <label class="sr-only" for="ship-note">Shipping note</label>
-        <input id="ship-note" type="text" name="shipping_note" maxlength="200" placeholder="Shipping note (optional)">
+        <input id="ship-note" class="sr-note" type="text" name="shipping_note" maxlength="200" placeholder="Shipping note (optional)">
         <button type="submit" class="btn btn-primary">Ship goods back</button>
       </form>
       {% endif %}
 
       {% if can_settle %}
-      <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="od-action-inline"
+      <form method="POST" action="{% url 'supplier_return_credit' ret.pk %}" class="sr-action"
             data-confirm="{{ ret.return_number }} will be marked Settled by credit note. This can't be undone."
             data-confirm-title="Record this credit note?"
             data-confirm-ok="Record credit">
         {% csrf_token %}
         <label class="sr-only" for="credit-ref">Credit note reference</label>
-        <input id="credit-ref" type="text" name="credit_reference" maxlength="60" required placeholder="Credit note ref.">
+        <input id="credit-ref" class="sr-ref" type="text" name="credit_reference" maxlength="60" required placeholder="Credit note ref.">
         <label class="sr-only" for="credit-amt">Amount</label>
-        <input id="credit-amt" type="number" name="credit_amount" min="{{ limits.min_price }}" max="{{ limits.max_amount }}" step="0.01" data-currency data-label="Credit amount" required placeholder="Amount (₱)" style="width:110px; text-align:right;">
+        <input id="credit-amt" class="sr-amount" type="number" name="credit_amount" min="{{ limits.min_price }}" max="{{ limits.max_amount }}" step="0.01" data-currency data-label="Credit amount" required placeholder="Amount (₱)">
         <button type="submit" class="btn btn-primary">Record credit</button>
       </form>
       {% endif %}
 
       {% if can_cancel %}
-      <form method="POST" action="{% url 'supplier_return_cancel' ret.pk %}" class="od-action-inline"
+      <form method="POST" action="{% url 'supplier_return_cancel' ret.pk %}" class="sr-action"
             data-confirm="{{ ret.return_number }} is closed and the supplier is told. No stock has moved, so nothing else changes."
             data-confirm-title="Cancel this return?"
             data-confirm-variant="danger"
             data-confirm-ok="Cancel return"
             data-confirm-dismiss="Keep return">
         {% csrf_token %}
-        <button type="submit" class="btn btn-quiet">Cancel this return</button>
+        <button type="submit" class="btn btn-danger">Cancel this return</button>
       </form>
       {% endif %}
     </div>
     {% endif %}
   </div>
-
-  {% if not return_progress.stopped %}
-  {% if ret.status == "Requested" %}
-  <p class="gv-meta mt-2 mb-0">Waiting for the supplier to acknowledge or reject this return. No stock has moved yet.</p>
-  {% elif ret.status == "Acknowledged" %}
-  <p class="gv-meta mt-2 mb-0">The supplier acknowledged this return. Ship the goods back to take them out of warehouse stock.</p>
-  {% elif ret.status == "Shipped" %}
-  <p class="gv-meta mt-2 mb-0">The goods have been sent back. Settle this return one of two ways: record a credit note, or receive replacement goods below.</p>
-  {% endif %}
   {% endif %}
 </div>
 
-<div class="card card-pad od-card mb-4">
-  <h3 class="od-h">Return details</h3>
-  <dl class="od-facts">
-    <div><dt>Purchase order</dt><dd><a href="{% url 'procurement_detail' ret.procurement.pk %}">{{ ret.procurement.po_number }}</a></dd></div>
-    <div><dt>Branch</dt><dd>{{ ret.branch.branch_name|default:"—" }}</dd></div>
-    <div><dt>Supplier</dt><dd>{% if ret.supplier %}{{ ret.supplier.supplier_profile.supplier_name|default:ret.supplier.username }}{% else %}—{% endif %}</dd></div>
-    <div><dt>Reason</dt><dd>{{ ret.get_reason_display }}</dd></div>
-    {% if ret.notes %}<div class="wide"><dt>Notes</dt><dd>{{ ret.notes }}</dd></div>{% endif %}
-    <div><dt>Raised</dt><dd>{{ ret.created_at|date:"Y-m-d H:i" }}{% if ret.requested_by %}<span class="od-sub">by {{ ret.requested_by.username }}</span>{% endif %}</dd></div>
-    {% if ret.responded_at %}<div><dt>Supplier answered</dt><dd>{{ ret.responded_at|date:"Y-m-d H:i" }}</dd></div>{% endif %}
-    {% if ret.shipped_at %}<div><dt>Shipped back</dt><dd>{{ ret.shipped_at|date:"Y-m-d H:i" }}{% if ret.shipped_by %}<span class="od-sub">by {{ ret.shipped_by.username }}</span>{% endif %}{% if ret.shipping_note %}<span class="od-sub">{{ ret.shipping_note }}</span>{% endif %}</dd></div>{% endif %}
-    {% if ret.status == "Settled" %}
-    <div><dt>Settled by</dt><dd>{{ ret.resolution }}{% if ret.resolution == "Credit Note" %} — {{ ret.credit_reference }} (₱{{ ret.credit_amount|floatformat:2 }}){% endif %}</dd></div>
-    <div><dt>Settled</dt><dd>{{ ret.settled_at|date:"Y-m-d H:i" }}</dd></div>
-    {% endif %}
-  </dl>
-</div>
+<div class="sr-grid{% if request.GET.modal != '1' %} sr-grid--split{% endif %}">
+  <div class="sr-main">
 
-{% if can_settle %}
-<form method="POST" action="{% url 'supplier_return_replacement' ret.pk %}"
-      data-confirm="Units entered are added to warehouse stock now. This can't be undone."
-      data-confirm-title="Record replacement received?"
-      data-confirm-ok="Record replacement">
-  {% csrf_token %}
-  <div class="card table-wrap mb-4">
-    <div class="card-pad" style="border-bottom:1px solid var(--line);">
-      <h3>Receive replacement goods</h3>
-      <p class="gv-meta mb-0">Enter what actually arrived. Stock is added to the warehouse only after you submit; the return settles once every unit is replaced.</p>
-    </div>
-    <table class="gv-table">
-      <thead><tr><th>Product</th><th class="num">Owed</th><th class="num">Received now</th><th>Expiry date</th></tr></thead>
-      <tbody>
-        {% for item in items %}
-        <tr>
-          <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
-          <td data-label="Owed" class="num">{{ item.replacement_outstanding }}</td>
-          <td data-label="Received now" class="num">
-            {% if item.replacement_outstanding %}
-            <input type="number" name="qty_{{ item.pk|unlocalize }}" min="0" max="{{ item.replacement_outstanding|unlocalize }}" step="1" style="width:100px; text-align:right;"
-                   aria-label="Replacement units of {{ item.product.product_name }} received">
-            {% else %}—{% endif %}
-          </td>
-          <td data-label="Expiry date">{% if item.replacement_outstanding %}<input type="date" name="expiry_{{ item.pk|unlocalize }}" aria-label="Expiry date for {{ item.product.product_name }}">{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <div class="card-pad row wrap" style="gap:12px; align-items:flex-end;">
-      <div class="field" style="margin:0;">
-        <label for="repl-by">Delivered by <span class="gv-meta">— optional</span></label>
-        <input id="repl-by" type="text" name="delivered_by" maxlength="100">
+    {% if can_settle %}
+    <form method="POST" action="{% url 'supplier_return_replacement' ret.pk %}"
+          data-confirm="Units entered are added to warehouse stock now. This can't be undone."
+          data-confirm-title="Record replacement received?"
+          data-confirm-ok="Record replacement">
+      {% csrf_token %}
+      <div class="card table-wrap">
+        <div class="sr-card-head">
+          <h3>Receive replacement goods</h3>
+          <p class="gv-meta">Enter what actually arrived. Stock is added to the warehouse only after you submit; the return settles once every unit is replaced.</p>
+        </div>
+        <table class="gv-table">
+          <thead><tr><th>Product</th><th class="num">Owed</th><th class="num">Received now</th><th>Expiry date</th></tr></thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+              <td data-label="Owed" class="num">{{ item.replacement_outstanding }}</td>
+              <td data-label="Received now" class="num">
+                {% if item.replacement_outstanding %}
+                <input type="number" class="sr-qty" name="qty_{{ item.pk|unlocalize }}" min="0" max="{{ item.replacement_outstanding|unlocalize }}" step="1"
+                       aria-label="Replacement units of {{ item.product.product_name }} received">
+                {% else %}&mdash;{% endif %}
+              </td>
+              <td data-label="Expiry date">{% if item.replacement_outstanding %}<input type="date" name="expiry_{{ item.pk|unlocalize }}" aria-label="Expiry date for {{ item.product.product_name }}">{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="sr-card-foot">
+          <div class="field">
+            <label for="repl-by">Delivered by <span class="gv-meta">&mdash; optional</span></label>
+            <input id="repl-by" type="text" name="delivered_by" maxlength="100">
+          </div>
+          <button type="submit" class="btn btn-primary">Record replacement received</button>
+        </div>
       </div>
-      <button type="submit" class="btn btn-primary">Record replacement received</button>
+    </form>
+    {% endif %}
+
+    <div class="card table-wrap">
+      <div class="sr-card-head">
+        <h3>Items returned</h3>
+        <span class="tag">{{ ret.total_quantity }} unit{{ ret.total_quantity|pluralize }}</span>
+      </div>
+      <table class="gv-table sr-items">
+        <thead><tr><th>Product</th><th>Original delivery</th><th class="num">Units returned</th><th class="num">Replaced</th></tr></thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
+            <td data-label="Original delivery">{% if item.source_receipt_item %}Receipt #{{ item.source_receipt_item.receipt_id }}<span class="sr-sub-line">{{ item.source_receipt_item.receipt.receipt_date|date:"Y-m-d" }}</span>{% else %}<span class="gv-meta">Legacy receipt &mdash; PO trace only</span>{% endif %}</td>
+            <td data-label="Units returned" class="num strong">{{ item.quantity_returned }}</td>
+            <td data-label="Replaced" class="num">{{ item.quantity_replaced }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if receipts %}
+    <div class="card table-wrap">
+      <div class="sr-card-head"><h3>Replacement receipts</h3></div>
+      <table class="gv-table">
+        <thead><tr><th>Date</th><th>Received by</th><th>Delivered by</th></tr></thead>
+        <tbody>
+          {% for r in receipts %}
+          <tr>
+            <td data-label="Date">{{ r.receipt_date|date:"Y-m-d" }}</td>
+            <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
+            <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="sr-side">
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Return details</h3>
+      <dl class="sr-rows">
+        <div><dt>Supplier</dt><dd>{% if ret.supplier %}{{ supplier_name }}{% else %}&mdash;{% endif %}</dd></div>
+        <div><dt>Purchase order</dt><dd><a href="{% url 'procurement_detail' ret.procurement.pk %}">{{ ret.procurement.po_number }}</a></dd></div>
+        <div><dt>Branch</dt><dd>{{ ret.branch.branch_name|default:"—" }}</dd></div>
+        <div><dt>Reason</dt><dd>{{ ret.get_reason_display }}</dd></div>
+        <div><dt>Units</dt><dd>{{ ret.total_quantity }}</dd></div>
+        {% if ret.notes %}<div class="sr-block"><dt>Notes</dt><dd>{{ ret.notes }}</dd></div>{% endif %}
+      </dl>
+    </div>
+
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Timeline</h3>
+      <ol class="sr-log">
+        <li>
+          <strong>Raised</strong>
+          <span class="sr-when">{{ ret.created_at|date:"Y-m-d H:i" }}{% if ret.requested_by %} &middot; by {{ ret.requested_by.username }}{% endif %}</span>
+        </li>
+        {% if ret.responded_at %}
+        <li>
+          <strong>{% if ret.status == "Rejected" %}Supplier rejected{% else %}Supplier responded{% endif %}</strong>
+          <span class="sr-when">{{ ret.responded_at|date:"Y-m-d H:i" }}</span>
+          {% if ret.supplier_note %}<span class="sr-when">{{ ret.supplier_note }}</span>{% endif %}
+        </li>
+        {% endif %}
+        {% if ret.shipped_at %}
+        <li>
+          <strong>Shipped back</strong>
+          <span class="sr-when">{{ ret.shipped_at|date:"Y-m-d H:i" }}{% if ret.shipped_by %} &middot; by {{ ret.shipped_by.username }}{% endif %}</span>
+          {% if ret.shipping_note %}<span class="sr-when">{{ ret.shipping_note }}</span>{% endif %}
+        </li>
+        {% endif %}
+        {% if ret.status == "Settled" %}
+        <li>
+          <strong>Settled by {{ ret.resolution }}</strong>
+          <span class="sr-when">{{ ret.settled_at|date:"Y-m-d H:i" }}{% if ret.resolution == "Credit Note" %} &middot; {{ ret.credit_reference }} (₱{{ ret.credit_amount|floatformat:2 }}){% endif %}</span>
+        </li>
+        {% endif %}
+      </ol>
     </div>
   </div>
-</form>
-{% endif %}
-
-<div class="card table-wrap mb-4">
-  <table class="gv-table">
-    <thead><tr><th>Product</th><th>Original delivery</th><th class="num">Units returned</th><th class="num">Replaced</th></tr></thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td data-label="Product" class="strong">{{ item.product.product_name }}</td>
-        <td data-label="Original delivery">{% if item.source_receipt_item %}Receipt #{{ item.source_receipt_item.receipt_id }} · {{ item.source_receipt_item.receipt.receipt_date|date:"Y-m-d" }}{% else %}<span class="gv-meta">Legacy receipt — PO trace only</span>{% endif %}</td>
-        <td data-label="Units returned" class="num">{{ item.quantity_returned }}</td>
-        <td data-label="Replaced" class="num">{{ item.quantity_replaced }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 </div>
-
-{% if receipts %}
-<div class="card table-wrap mb-4">
-  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>Replacement receipts</h3></div>
-  <table class="gv-table">
-    <thead><tr><th>Date</th><th>Received by</th><th>Delivered by</th></tr></thead>
-    <tbody>
-      {% for r in receipts %}
-      <tr>
-        <td data-label="Date">{{ r.receipt_date|date:"Y-m-d" }}</td>
-        <td data-label="Received by">{{ r.received_by_name|default:"Unknown" }}</td>
-        <td data-label="Delivered by">{{ r.delivered_by|default:"—" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
+{% endwith %}
 {% endblock %}

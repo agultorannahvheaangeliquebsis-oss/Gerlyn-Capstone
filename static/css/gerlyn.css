@@ -271,6 +271,14 @@ input::placeholder { color: var(--ink-500); }
 input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
+.check-group { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+.check-group label, .field > label.check-option {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 400; color: var(--ink-700); cursor: pointer;
+}
+.check-group input[type="checkbox"], .check-option input[type="checkbox"] { margin: 0; flex: none; }
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.form-actions > form { margin: 0; }
 
 /* The value of a field that is fixed and always will be: the branch you are
    scoped to, the product row you opened the edit modal from. It is printed
@@ -1583,6 +1591,37 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   display: flex; justify-content: flex-end; gap: var(--s3);
   padding: var(--s4) var(--s6);
   border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------- action menu (modal foot)
+   A <details> button that opens a small panel of submit choices. Opens UPWARD
+   because it lives in a modal footer with nothing below it. Closed on
+   outside-click/Escape by the shared handler in sidebar.js. */
+.action-menu { position: relative; display: inline-flex; }
+.action-menu > summary { list-style: none; cursor: pointer; gap: 8px; }
+.action-menu > summary::-webkit-details-marker { display: none; }
+.action-menu-caret { flex: none; transition: transform .15s ease; }
+.action-menu[open] .action-menu-caret { transform: rotate(180deg); }
+.action-menu-panel {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 30;
+  min-width: 260px; padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-card); box-shadow: var(--shadow-hero);
+}
+.action-menu-item {
+  display: flex; align-items: center; min-height: 40px; padding: 0 12px;
+  border: 0; border-radius: var(--r-input); background: transparent;
+  font: 600 13.5px/1.2 var(--font-sans); color: var(--ink-700);
+  text-align: left; cursor: pointer;
+}
+.action-menu-item:hover, .action-menu-item:focus-visible { background: var(--line-soft); color: var(--ink-900); }
+.action-menu-item--danger { color: var(--danger-fg); }
+.action-menu-item--danger:hover, .action-menu-item--danger:focus-visible { background: var(--danger-bg); color: var(--danger-fg); }
+@media (max-width: 520px) {
+  .modal-foot .action-menu { flex: 1; }
+  .modal-foot .action-menu > summary { flex: 1; justify-content: center; }
+  .modal-foot .action-menu-panel { left: 0; right: 0; min-width: 0; }
 }
 
 /* -------------------------------------------------------- detail modal

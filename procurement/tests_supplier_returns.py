@@ -445,6 +445,13 @@ class ViewTests(ReturnBase):
         self.client.force_login(self.supplier)  # suppliers use the portal only
         self.assertEqual(self.client.get(reverse('supplier_return_list')).status_code, 302)
 
+    def test_list_view_action_is_plain_navigation_not_a_detail_modal(self):
+        ret = self.make_return()
+        self.client.force_login(self.manager)
+        html = self.client.get(reverse('supplier_return_list')).content.decode()
+        self.assertIn(f'href="{reverse("supplier_return_detail", args=[ret.pk])}"', html)
+        self.assertNotIn('data-detail-modal', html)
+
     def test_list_filters_by_status_and_shows_counts(self):
         self.make_return(1)
         self.make_return(1, status=S.CANCELLED)

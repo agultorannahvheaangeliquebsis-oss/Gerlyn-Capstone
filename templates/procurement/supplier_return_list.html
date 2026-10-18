@@ -55,8 +55,8 @@
         <td data-label="Status">{% include "partials/_return_status_pill.html" with status=r.status %}</td>
         <td data-label="Raised" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
         <td data-label="Action" class="end">
-          <a class="icon-btn icon-btn-action" href="{% url 'supplier_return_detail' r.pk %}"
-             data-detail-modal="Supplier Return" title="View" aria-label="View return {{ r.return_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a>
+          <span class="row-actions"><a class="icon-btn icon-btn-action" href="{% url 'supplier_return_detail' r.pk %}"
+             title="View" aria-label="View return {{ r.return_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></span>
         </td>
       </tr>
       {% empty %}

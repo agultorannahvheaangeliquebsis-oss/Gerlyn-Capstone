@@ -24,14 +24,16 @@
     {% if product_categories %}
     <div class="field">
       <label>Product categories <span class="gv-meta">— optional</span></label>
-      <div class="row-actions" style="flex-wrap:wrap; gap:6px 16px;">
+      <div class="check-group">
         {% for pc in product_categories %}
-        <label style="font-weight:400;"><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"> {{ pc.category_name }}</label>
+        <label><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"> {{ pc.category_name }}</label>
         {% endfor %}
       </div>
     </div>
     {% endif %}
-    <button type="submit" class="btn btn-primary">Add category</button>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Add category</button>
+    </div>
   </form>
 </div>
 {% endif %}
@@ -46,7 +48,7 @@
   </div>
   {% if can_edit or can_delete %}
   {% if can_edit %}
-  <form method="POST" action="{% url 'supplier_category_edit' c.pk %}">
+  <form id="cat-form-{{ c.pk|unlocalize }}" method="POST" action="{% url 'supplier_category_edit' c.pk %}">
     {% csrf_token %}
     <div class="field">
       <label for="cat-name-{{ c.pk|unlocalize }}">Name</label>
@@ -55,27 +57,29 @@
     {% if product_categories %}
     <div class="field">
       <label>Product categories</label>
-      <div class="row-actions" style="flex-wrap:wrap; gap:6px 16px;">
+      <div class="check-group">
         {% for pc in product_categories %}
-        <label style="font-weight:400;"><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"{% if pc in c.product_categories.all %} checked{% endif %}> {{ pc.category_name }}</label>
+        <label><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"{% if pc in c.product_categories.all %} checked{% endif %}> {{ pc.category_name }}</label>
         {% endfor %}
       </div>
     </div>
     {% endif %}
     <div class="field">
-      <label style="font-weight:400;"><input type="checkbox" name="is_active"{% if c.is_active %} checked{% endif %}> Active — can be picked for suppliers</label>
+      <label class="check-option"><input type="checkbox" name="is_active"{% if c.is_active %} checked{% endif %}> Active — can be picked for suppliers</label>
     </div>
-    <button type="submit" class="btn btn-primary">Save</button>
   </form>
   {% endif %}
-  {% if can_delete %}<form method="POST" action="{% url 'supplier_category_delete' c.pk %}" style="display:inline; margin-top:8px;"
-        data-confirm="{% if c.supplier_count %}{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }} still use{{ c.supplier_count|pluralize:'s,' }} this category, so it can't be deleted. Mark it inactive instead.{% else %}Nothing uses this category, so it is removed for good.{% endif %}"
-        data-confirm-title="Delete this category?"
-        data-confirm-variant="danger"
-        data-confirm-ok="Delete category">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-danger">Delete</button>
-  </form>{% endif %}
+  <div class="form-actions">
+    {% if can_edit %}<button type="submit" form="cat-form-{{ c.pk|unlocalize }}" class="btn btn-primary">Save</button>{% endif %}
+    {% if can_delete %}<form method="POST" action="{% url 'supplier_category_delete' c.pk %}"
+          data-confirm="{% if c.supplier_count %}{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }} still use{{ c.supplier_count|pluralize:'s,' }} this category, so it can't be deleted. Mark it inactive instead.{% else %}Nothing uses this category, so it is removed for good.{% endif %}"
+          data-confirm-title="Delete this category?"
+          data-confirm-variant="danger"
+          data-confirm-ok="Delete category">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>{% endif %}
+  </div>
   {% else %}
   <div>
     {% for pc in c.product_categories.all %}<span class="tag">{{ pc.category_name }}</span> {% empty %}<span class="gv-meta">No product categories linked.</span>{% endfor %}

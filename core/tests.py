@@ -629,17 +629,22 @@ class DetailModalTests(TestCase):
         by it rather than by a list of files that a new module would not be
         on.
 
-        Financials is the deliberate exception: the Order Console and Billing
-        list navigate to Order Detail / Billing Detail as full pages, not a
-        modal — those detail pages link onward to each other (Order Detail
-        <-> Billing Detail) and to their own print page, which reads as
-        actual navigation with a real back button rather than a quick
-        look-up over the list. See templates/sales/transaction_list.html and
-        templates/billing/billing_list.html.
+        Financials, Purchase Orders and Supplier Returns are the deliberate
+        exceptions: the Order Console, Billing list, Purchase Orders list and
+        Supplier Returns list navigate to Order Detail / Billing Detail / PO
+        Detail / Return Detail as full pages, not a modal —
+        those detail pages link onward (Order Detail <-> Billing Detail, the
+        PO's returns, deliveries and print page) and carry forms of their
+        own, which reads as actual navigation with a real back button rather
+        than a quick look-up over the list. See
+        templates/sales/transaction_list.html, templates/billing/billing_list.html
+        and templates/procurement/procurement_list.html.
         """
         EXEMPT_VIEW_ACTIONS = {
             'sales/transaction_list.html',
             'billing/billing_list.html',
+            'procurement/procurement_list.html',
+            'procurement/supplier_return_list.html',
         }
         offenders = []
         for root in settings.TEMPLATES[0]['DIRS']:
