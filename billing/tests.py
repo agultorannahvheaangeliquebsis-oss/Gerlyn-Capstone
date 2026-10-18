@@ -860,7 +860,7 @@ class BillingAPIModulePermissionTests(TestCase):
     the Billing module away from /billing/ but let the same account reach
     /api/billing/<pk>/confirm/ (and the rest of the billing API) directly.
     The API url names are now in the Billing module's registry entry, so the
-    one middleware gate covers both surfaces the same way — a redirect, with
+    one middleware gate covers both surfaces the same way — a 403, with
     the record left untouched.
     """
 
@@ -889,7 +889,9 @@ class BillingAPIModulePermissionTests(TestCase):
             allowed_modules=[*DEFAULT_STAFF_MODULES, BILLING]
         )
         User.objects.filter(pk=cls.staff_without.pk).update(
-            allowed_modules=list(DEFAULT_STAFF_MODULES)  # no BILLING
+            # Staff defaults now include BILLING (c997d16), so take it out
+            # explicitly rather than relying on the defaults to omit it.
+            allowed_modules=[m for m in DEFAULT_STAFF_MODULES if m != BILLING]
         )
 
     def _pending_record(self):
@@ -932,7 +934,9 @@ class BillingAPIModulePermissionTests(TestCase):
         )
 
         self.assertEqual(api_resp.status_code, 403)
-        self.assertEqual(web_resp.status_code, 302)
+        # The middleware answers a revoked module with the styled 403 page on
+        # the web side too (no longer a flash redirect).
+        self.assertEqual(web_resp.status_code, 403)
         record.refresh_from_db()
         self.assertEqual(record.status, BillingRecord.PaymentStatus.PENDING)
 
