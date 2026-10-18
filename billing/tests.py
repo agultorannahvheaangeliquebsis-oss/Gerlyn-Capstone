@@ -1389,7 +1389,7 @@ class BillingCreateCancelLinkTests(TestCase):
 class PaymentEvidencePerMethodTests(TestCase):
     """What each method has to have on file before it can be saved or
     verified: GCash and Bank Transfer need a reference number AND a proof,
-    Card needs a proof, and Cash / Cash on Delivery / Pay at Store need
+    Card and Cash on Delivery need a proof, and Cash / Pay at Store need
     neither. One rule (BillingRecord.missing_payment_evidence) shared by the
     web form, the API and Mark as Paid."""
 
@@ -1430,7 +1430,10 @@ class PaymentEvidencePerMethodTests(TestCase):
         self.assertEqual(need(M.BANK_TRANSFER, 'BT-1', False), ['proof of payment'])
         self.assertEqual(need(M.CARD, '', False), ['proof of payment'])
         self.assertEqual(need(M.CARD, '', True), [])
-        for method in (M.CASH, M.COD, M.PAY_AT_STORE):
+        # COD: the rider's receipt photo is the only evidence the cash moved.
+        self.assertEqual(need(M.COD, '', False), ['proof of payment'])
+        self.assertEqual(need(M.COD, '', True), [])
+        for method in (M.CASH, M.PAY_AT_STORE):
             self.assertEqual(need(method, '', False), [])
 
     def test_a_blank_or_whitespace_reference_counts_as_missing(self):
@@ -1536,7 +1539,7 @@ class PaymentEvidencePerMethodTests(TestCase):
         )
         self.assertEqual(
             set(response.context['proof_required_methods']),
-            {'GCash', 'Bank Transfer', 'Card'},
+            {'GCash', 'Bank Transfer', 'Card', 'Cash on Delivery'},
         )
         # Hidden until the method calls for them, and the copy no longer
         # calls the proof "optional".
@@ -1577,8 +1580,18 @@ class PaymentEvidencePerMethodTests(TestCase):
         self.assertEqual(self._mark_paid(self._record('Card')), 'Pending')
         self.assertEqual(self._mark_paid(self._record('Card', proof=True)), 'Paid')
 
+    def test_cash_on_delivery_cannot_be_verified_without_a_proof(self):
+        record = self._record('Cash on Delivery')
+        self.assertEqual(self._mark_paid(record), 'Pending')
+        self.assertIsNone(record.confirmed_by)
+
+    def test_cash_on_delivery_verifies_once_the_proof_is_on_file(self):
+        self.assertEqual(
+            self._mark_paid(self._record('Cash on Delivery', proof=True)), 'Paid'
+        )
+
     def test_counter_settled_methods_verify_with_nothing(self):
-        for method in ('Cash', 'Cash on Delivery', 'Pay at Store'):
+        for method in ('Cash', 'Pay at Store'):
             with self.subTest(method=method):
                 self.assertEqual(self._mark_paid(self._record(method)), 'Paid')
 
@@ -1598,6 +1611,22 @@ class PaymentEvidencePerMethodTests(TestCase):
             data={'status': 'Paid'}, context={'request': request},
         )
         self.assertTrue(complete.is_valid(), complete.errors)
+
+    def test_confirm_serializer_refuses_cash_on_delivery_without_a_proof(self):
+        request = RequestFactory().patch('/')
+        request.user = self.owner
+        bare = BillingConfirmSerializer(
+            self._record('Cash on Delivery'),
+            data={'status': 'Paid'}, context={'request': request},
+        )
+        self.assertFalse(bare.is_valid())
+        self.assertIn('proof of payment', str(bare.errors))
+
+        with_proof = BillingConfirmSerializer(
+            self._record('Cash on Delivery', proof=True),
+            data={'status': 'Paid'}, context={'request': request},
+        )
+        self.assertTrue(with_proof.is_valid(), with_proof.errors)
 
     def test_payment_serializer_enforces_the_same_rule(self):
         from billing.serializers import BillingPaymentSerializer
@@ -1645,6 +1674,12 @@ class PaymentEvidencePerMethodTests(TestCase):
         self.assertFalse(cash_on_online.is_valid())
 
         # Regression guard: a channel-appropriate method still saves.
+        # (COD now also needs the rider's proof — attached, or already on file.)
+        cod_no_proof = BillingPaymentSerializer(
+            online_record, data={'paymentMethod': 'Cash on Delivery'}
+        )
+        self.assertFalse(cod_no_proof.is_valid())
+        online_record.proof_of_payment.save('rider.png', _valid_png_file(), save=True)
         cod_on_online = BillingPaymentSerializer(
             online_record, data={'paymentMethod': 'Cash on Delivery'}
         )

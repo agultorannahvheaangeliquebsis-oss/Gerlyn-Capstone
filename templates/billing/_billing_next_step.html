@@ -218,12 +218,12 @@ order_status, remaining_after_refunds.
       The payment was verified and some of it has since been handed back. Refunds are
       raised and approved on the order, not here.
     </p>
-    <dl class="od-sum bill-refund-sum">
-      <div><dt>Original payment</dt><dd>₱{{ record.amount_due|floatformat:2 }}</dd></div>
-      <div><dt>Refunded</dt><dd class="od-credit">−₱{{ txn.refunded_amount|floatformat:2 }}</dd></div>
-      <div class="od-total"><dt>Remaining</dt><dd>₱{{ remaining_after_refunds|floatformat:2 }}</dd></div>
-    </dl>
   </div>
+  <dl class="od-sum bill-refund-sum">
+    <div><dt>Original payment</dt><dd>₱{{ record.amount_due|floatformat:2 }}</dd></div>
+    <div><dt>Refunded</dt><dd class="od-credit">−₱{{ txn.refunded_amount|floatformat:2 }}</dd></div>
+    <div class="od-total"><dt>Remaining</dt><dd>₱{{ remaining_after_refunds|floatformat:2 }}</dd></div>
+  </dl>
 </section>
 
 {% elif record.status == "Refunded" %}

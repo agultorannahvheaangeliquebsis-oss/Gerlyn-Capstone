@@ -36,10 +36,12 @@
   .bill-next--muted  { border-left-color: var(--ink-400); }
   .bill-next-main { flex: 1 1 320px; min-width: 0; }
   .bill-next-h { margin: 0 0 var(--s2); }
-  .bill-next-p { margin: 0 0 var(--s2); font-size: 14.5px; color: var(--ink-700); max-width: 68ch; }
+  .bill-next-p { margin: 0 0 var(--s2); font-size: 14.5px; color: var(--ink-700); max-width: 68ch; text-wrap: pretty; }
   .bill-next-p:last-child { margin-bottom: 0; }
   .bill-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); flex: 0 1 auto; }
-  .bill-refund-sum { max-width: 340px; margin-top: var(--s3); }
+  /* The refund breakdown sits at the right edge of its notice, where the
+     buttons sit on the other notices, rather than under the text. */
+  .bill-refund-sum { flex: 0 1 340px; margin: 0; }
 
   /* "More" menu beside the verify button: the secondary decisions (edit the
      details, reject) one click away instead of three buttons in a row.
@@ -78,16 +80,40 @@
   /* Payment facts, with the proof one button away at the card's top right
      instead of a second card beside it. */
   .bill-pay { margin-bottom: var(--s4); }
-  .bill-amount { padding-bottom: var(--s3); margin-bottom: var(--s3); border-bottom: 1px solid var(--line-soft); }
+  /* One padding for every card on the page. The Next Step and Payment cards
+     used the roomy .card-pad while Order Information and Items used the
+     tighter .od-card one, so their text started at different left edges. */
+  .card.card-pad.bill-next, .bill-pay > .card.card-pad, .card.card-pad.od-card { padding: var(--s6); }
+  /* The amount gets a pane of its own and the facts a three-column grid
+     beside it, so six tiles read as two even rows instead of one ragged row
+     whose widest tile (the proof note) wrapped to four lines. */
+  .bill-pay-body { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: var(--s6); }
+  .bill-amount { padding-right: var(--s6); border-right: 1px solid var(--line-soft); }
   .bill-amount-label { display: block; font: 700 11.5px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500); }
   .bill-amount-value { display: block; margin-top: 2px; min-width: 0; overflow-wrap: anywhere; font: 700 28px/1.15 var(--font-sans); color: var(--action); font-variant-numeric: tabular-nums; }
   .bill-amount-sub { display: block; margin-top: 4px; font-size: 13.5px; color: var(--ink-600); }
-  /* A wider basis than .od-facts' own 128px: these tiles carry a second
-     explanatory line (how the method settles, whether a reference is
-     required), which at 128px wrapped to four lines and made the row
-     taller than it needed to be. */
-  .bill-facts { row-gap: var(--s3); }
-  .bill-facts > div { flex: 1 1 165px; }
+  .od-facts.bill-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4) var(--s6); align-content: start; }
+  .od-facts.bill-facts > div { flex: none; }
+  /* Order Information: equal columns that wrap evenly, where the flex row
+     stretched whatever was left on the last line. */
+  .od-facts.bill-order-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s4) var(--s6); }
+  .od-facts.bill-order-facts > div { flex: none; }
+  /* Number columns a fixed, equal width so Qty / Unit Price / Subtotal sit
+     together at the right edge instead of drifting apart across the table. */
+  @media (min-width: 861px) {
+    .bill-items th.num, .bill-items td.num { width: 150px; }
+  }
+  @media (max-width: 1100px) {
+    .od-facts.bill-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 860px) {
+    .bill-pay-body { grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+    .bill-amount { padding: 0 0 var(--s4); border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  }
+  @media (max-width: 560px) {
+    .card.card-pad.bill-next, .bill-pay > .card.card-pad, .card.card-pad.od-card { padding: var(--s4); }
+    .od-facts.bill-facts { grid-template-columns: minmax(0, 1fr); }
+  }
   .bill-missing { color: var(--danger-fg); font-weight: 600; margin: 0; }
   /* The upload button while a required proof is missing: the warning palette
      the pending pill and the Next Step's wait stripe already use, so it reads
@@ -190,7 +216,7 @@ payment facts that are this page's actual subject.
     <a class="btn btn-sm" href="{% url 'transaction_detail' record.transaction.pk %}">View Order &rarr;</a>
     {% endif %}
   </div>
-  <dl class="od-facts">
+  <dl class="od-facts bill-order-facts">
     <div><dt>Order no.</dt><dd class="strong">{{ record.transaction.order_number }}</dd></div>
     <div><dt>Customer</dt><dd>
       {% if record.transaction.customer %}{{ record.transaction.customer.get_full_name|default:record.transaction.customer.username }}
@@ -208,7 +234,7 @@ payment facts that are this page's actual subject.
     <h4 class="od-items-head">
       Items <span class="tag">{{ items|length }} item{{ items|length|pluralize }}</span>
     </h4>
-    <table class="gv-table od-table od-items" style="border:0;">
+    <table class="gv-table od-table od-items bill-items" style="border:0;">
       <thead>
         <tr><th>Product</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Subtotal</th></tr>
       </thead>

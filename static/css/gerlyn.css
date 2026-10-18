@@ -271,14 +271,56 @@ input::placeholder { color: var(--ink-500); }
 input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
-.check-group { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
-.check-group label, .field > label.check-option {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-weight: 400; color: var(--ink-700); cursor: pointer;
+.field-title { font: 600 14px/1.2 var(--font-sans); color: var(--ink-700); }
+.field-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.field-hint { margin: 0; }
+
+/* Pick-several-from-a-list: each option is a whole tappable tile, and a ticked
+   one fills green so the selection reads at a glance. The native checkbox stays
+   (keyboard, screen readers, form posting); the tile is just a bigger target. */
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--s2); }
+.check-tile {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--touch); padding: 0 var(--s3);
+  border: 1.5px solid var(--line); border-radius: var(--r-input);
+  background: var(--surface); color: var(--ink-700);
+  font: 400 15px/1.3 var(--font-sans); cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
-.check-group input[type="checkbox"], .check-option input[type="checkbox"] { margin: 0; flex: none; }
-.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
-.form-actions > form { margin: 0; }
+.check-tile input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--action); }
+.check-tile:hover { border-color: var(--action); }
+.check-tile:has(input:checked) { background: var(--green-50); border-color: var(--action); color: var(--action-700); font-weight: 600; }
+.check-tile:has(input:focus-visible) { outline: 3px solid var(--brand); outline-offset: 2px; }
+.check-tile input:focus-visible { outline: none; }
+
+/* An on/off setting, set apart from the form's data fields. */
+.switch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
+  min-height: var(--touch); padding: var(--s3) var(--s4);
+  border: 1px solid var(--line); border-radius: var(--r-input);
+  background: var(--line-soft); cursor: pointer;
+}
+.switch-row:has(input:focus-visible) { outline: 3px solid var(--brand); outline-offset: 2px; }
+.switch-row strong { display: block; color: var(--ink-900); }
+.switch-row .gv-meta { display: block; margin-top: 2px; }
+.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative;
+  width: 44px; height: 24px; margin: 0; border-radius: 12px;
+  background: var(--ink-500); cursor: pointer; transition: background .15s ease;
+}
+.switch::before {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; transition: transform .15s ease;
+}
+.switch:checked { background: var(--action); }
+.switch:checked::before { transform: translateX(20px); }
+.switch:focus-visible { outline: none; }
+
+/* Shown inside a modal when a dismiss is attempted with unsaved edits. */
+.discard-bar { align-items: center; justify-content: space-between; flex-wrap: wrap; margin: var(--s4) var(--s6) 0; }
+.discard-bar[hidden] { display: none; }
+.discard-bar .row-actions { gap: var(--s2); }
+@media (max-width: 480px) { .check-grid { grid-template-columns: 1fr 1fr; } }
 
 /* The value of a field that is fixed and always will be: the branch you are
    scoped to, the product row you opened the edit modal from. It is printed
@@ -1670,6 +1712,104 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    and repeating it inside a box that is itself already lifted reads as
    clutter. The border still does the separating. */
 .detail-modal .modal-body .card { box-shadow: none; }
+
+/* ------------------------------------------- stock transfer / write-off detail
+   One fragment (inventory/transfer_detail.html) serves both modals, so these
+   rules are what keeps them identical. Page-scoped under .tx-detail: the
+   shared .gv-table, .pill and .modal-* rules are left alone.
+
+   The modal's own 24px padding and 16px gap were stacked on top of the
+   fragment's, which is where most of the dead space came from — tighten them
+   only when a .tx-detail is inside. (:has is progressive: without it the
+   modal simply keeps the default spacing.) */
+.detail-modal .modal-body:has(.tx-detail) { padding: var(--s4) var(--s4); gap: var(--s3); }
+.tx-detail { display: flex; flex-direction: column; gap: var(--s3); max-width: 860px; min-width: 0; }
+.tx-detail > * { margin: 0; }
+.tx-detail h3 { font: 650 15px/1.3 var(--font-sans); margin: 0 0 var(--s2); }
+.tx-detail h4 { font: 650 14px/1.3 var(--font-sans); margin: 0; }
+
+/* What happens next — one line, tinted by who is being waited on. */
+.tx-next {
+  padding: var(--s2) var(--s3); border-radius: var(--r-input);
+  font: 500 14px/1.4 var(--font-sans);
+}
+.tx-next-warn { background: var(--warn-bg); color: var(--warn-fg); }
+.tx-next-info { background: var(--info-bg); color: var(--info-fg); }
+
+/* Label above value, flowing into as many columns as fit. */
+.tx-facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s3) var(--s4); margin: 0;
+  padding: var(--s3) var(--s4); border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.tx-facts > div { min-width: 0; }
+.tx-facts dt { font: 400 12.5px/1.3 var(--font-sans); color: var(--ink-600); }
+.tx-facts dd {
+  margin: 2px 0 0; font: 500 14px/1.35 var(--font-sans);
+  overflow-wrap: anywhere;
+  display: flex; flex-direction: column;
+}
+.tx-facts dd .gv-meta { font-size: 12.5px; font-weight: 400; }
+.tx-facts .tx-wide { grid-column: 1 / -1; }
+.tx-facts .tx-wide dd { font-weight: 400; white-space: pre-line; }
+
+/* Requested → Approved → Picked → Received. */
+.tx-stages {
+  list-style: none; margin: 0 0 var(--s3); padding: 0;
+  display: flex; flex-wrap: wrap; gap: var(--s2);
+}
+.tx-stage {
+  flex: 1 1 110px; display: flex; flex-direction: column;
+  padding: var(--s2) var(--s3); border: 1px solid var(--line);
+  border-radius: var(--r-card); background: var(--line-soft);
+}
+.tx-stage-label { font: 400 12.5px/1.3 var(--font-sans); color: var(--ink-600); }
+.tx-stage-value { font: 700 20px/1.2 var(--font-sans); font-variant-numeric: tabular-nums; }
+.tx-stage-warn { background: var(--warn-bg); border-color: transparent; }
+.tx-stage-warn .tx-stage-label, .tx-stage-warn .tx-stage-value { color: var(--warn-fg); }
+.tx-stage-danger { background: var(--danger-bg); border-color: transparent; }
+.tx-stage-danger .tx-stage-label, .tx-stage-danger .tx-stage-value { color: var(--danger-fg); }
+
+.tx-items .tx-product { overflow-wrap: anywhere; font-weight: 500; }
+.tx-items td .pill { margin-left: var(--s2); font-size: 12px; padding: 0 8px; }
+
+/* Receive / flag forms: labelled fields stacked in a bordered panel instead
+   of a loose row of unlabelled inputs. */
+.tx-actions { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.tx-panel {
+  flex: 1 1 280px; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3) var(--s4); border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.tx-panel .btn { align-self: flex-start; }
+.tx-field { display: flex; flex-direction: column; gap: 2px; font: 500 13px/1.35 var(--font-sans); }
+.tx-field .gv-meta { font-weight: 400; }
+.tx-recv { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--s3); }
+.tx-recv-name { min-width: 0; overflow-wrap: anywhere; font-weight: 400; }
+.tx-recv input { width: 90px; flex: none; }
+
+/* History: a rail down the left with one dot per recorded transition. */
+.tx-history { list-style: none; margin: 0; padding: 0; }
+.tx-step {
+  position: relative; padding: 0 0 var(--s3) var(--s4);
+  border-left: 2px solid var(--line); margin-left: 5px;
+}
+.tx-step:last-child { padding-bottom: 0; border-left-color: transparent; }
+.tx-step::before {
+  content: ""; position: absolute; left: -7px; top: 5px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--ink-600); border: 2px solid var(--surface);
+}
+.tx-step-ok::before { background: var(--ok-fg); }
+.tx-step-warn::before { background: var(--warn-fg); }
+.tx-step-danger::before { background: var(--danger-fg); }
+.tx-step-info::before { background: var(--info-fg); }
+.tx-step-head {
+  display: flex; flex-wrap: wrap; justify-content: space-between;
+  align-items: center; gap: 2px var(--s3);
+}
+.tx-step-change { display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.tx-step-who { font-size: 13px; }
+.tx-step-note { margin: 2px 0 0; font: 400 13.5px/1.4 var(--font-sans); color: var(--ink-900); overflow-wrap: anywhere; }
 
 .detail-modal-loading {
   display: flex; align-items: center; justify-content: center; gap: var(--s3);
@@ -3512,4 +3652,61 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   .gv-sync-panel { position: fixed; top: 64px; left: var(--s3); right: var(--s3); width: auto; }
   .gv-sync-label { display: none; }
   .gv-sync-pill { padding: 0 10px; }
+}
+
+/* ------------------------------------------------- dropdowns always open down
+   A native <select> popup is positioned by the browser, which flips it above
+   the field whenever it judges there is too little room below (a modal near
+   the bottom of the window, the last row of a form). CSS cannot steer that, so
+   every single-choice select opts into the customizable-select rendering and
+   its list is pinned under the field. The list is clamped to the space that is
+   actually below (max-height: 100% resolves against the position-area, not the
+   page) and scrolls inside that, rather than flipping. Browsers without
+   appearance: base-select keep the native control untouched. */
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]),
+  select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+  }
+  select:not([multiple]):not([size]) {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    background-image: none;
+    cursor: pointer;
+  }
+  /* The toolbar selects drew their own chevron as a background; the picker
+     icon below replaces it, so leave room for the icon, not a second arrow. */
+  .toolbar-search select:not([multiple]):not([size]) { padding-right: 14px; }
+  select:not([multiple]):not([size])::picker-icon {
+    content: "";
+    flex: none; width: 16px; height: 16px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A968F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / 16px no-repeat;
+    transition: rotate .15s ease;
+  }
+  select:not([multiple]):not([size]):open::picker-icon { rotate: 180deg; }
+  select:not([multiple]):not([size]):disabled { cursor: not-allowed; }
+
+  select:not([multiple]):not([size])::picker(select) {
+    position-area: bottom span-right;
+    position-try-fallbacks: none;
+    margin: 4px 0 0; padding: 4px;
+    min-width: anchor-size(width);
+    max-height: min(100%, 20rem);
+    overflow-y: auto;
+    border: 1.5px solid var(--input-line);
+    border-radius: var(--r-input);
+    background: var(--surface);
+    box-shadow: 0 8px 24px rgba(16, 24, 20, .14);
+  }
+  select:not([multiple]):not([size]) option {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 36px; padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--ink-900); font: 400 15px/1.4 var(--font-sans);
+    cursor: pointer;
+  }
+  select:not([multiple]):not([size]) option::checkmark { display: none; }
+  select:not([multiple]):not([size]) option:hover,
+  select:not([multiple]):not([size]) option:focus-visible { background: var(--green-50); }
+  select:not([multiple]):not([size]) option:checked { font-weight: 600; background: var(--green-50); }
+  select:not([multiple]):not([size]) option:disabled { color: var(--ink-400); cursor: not-allowed; }
 }

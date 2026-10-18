@@ -3,27 +3,23 @@
 {% block title %}{{ transfer.slip_number }}{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% block content %}
-<div style="padding:8px 4px; max-width:800px;">
+<div class="tx-detail">
   {% comment %}
-  The same .page-head / h1 / status-pill shape the other four detail pages
-  use, in place of the hand-styled h2 and inline grey chip this one carried.
-  Two reasons, and neither is tidiness alone: the pill tints now agree with
-  the ones the list shows for the very same slip (a Released row was amber
-  there and neutral here), and the "see" overlay lifts a page's h1 into its
-  own head — a heading that was an h2 would have left the modal titled
-  "Details". See detail-modal.js.
+  The same .page-head / h1 / status-pill shape the other detail pages use.
+  The pill tints agree with the ones the lists show for the same slip, and
+  the "see" overlay lifts a page's h1 into its own head, so the heading must
+  stay an h1. See detail-modal.js.
+
+  This one template serves BOTH the Stock Transfer and the Write-off modal
+  (they are one table, told apart by purpose), so the two always share
+  spacing, badges, quantity table and history. Status wording and tones come
+  from _transfer_detail_summary in inventory/views.py, so the title pill, the
+  history rows and the lists never disagree.
   {% endcomment %}
   <div class="page-head">
     <div>
-      <a class="back-link" href="{% url 'transfer_list' %}?view={% if transfer.purpose == 'Branch Restock' %}transfers{% else %}writeoffs{% endif %}">{% if transfer.purpose == 'Branch Restock' %}Stock Transfers{% else %}Write-offs{% endif %}</a>
-      <h1 class="mt-2">{{ transfer.slip_number }}
-        {% if transfer.status == 'Acknowledged' %}<span class="pill pill-ok">{% if transfer.purpose == 'Branch Restock' %}Received on Floor{% else %}Completed{% endif %}</span>
-        {% elif transfer.status == 'Discrepancy' %}<span class="pill pill-danger">Discrepancy</span>
-        {% elif transfer.status == 'Rejected' %}<span class="pill pill-danger">Rejected</span>
-        {% elif transfer.status == 'Released' %}<span class="pill pill-info">Moved - Awaiting Confirmation</span>
-        {% elif transfer.status == 'Pending' %}<span class="pill pill-warn">Pending</span>
-        {% else %}<span class="pill pill-info">{{ transfer.status }}</span>{% endif %}
-      </h1>
+      <a class="back-link" href="{% url 'transfer_list' %}?view={% if is_restock %}transfers{% else %}writeoffs{% endif %}">{% if is_restock %}Stock Transfers{% else %}Write-offs{% endif %}</a>
+      <h1 class="mt-2">{{ transfer.slip_number }} <span class="pill pill-{{ status_tone }}">{{ status_label }}</span></h1>
     </div>
   </div>
 
@@ -36,64 +32,73 @@
   independent of what the viewer below is allowed to do about it.
   {% endcomment %}
   {% if transfer.status == 'Pending' %}
-  <p class="gv-meta">Waiting on {{ transfer.source_branch }} to review and approve.</p>
+  <p class="tx-next tx-next-warn">Waiting on {{ transfer.source_branch }} to review and approve.</p>
   {% elif transfer.status == 'Approved' %}
-  <p class="gv-meta">Approved — waiting on {{ transfer.source_branch }} to {% if transfer.purpose == 'Branch Restock' %}release the stock{% else %}complete the write-off{% endif %}.</p>
+  <p class="tx-next tx-next-info">Approved — waiting on {{ transfer.source_branch }} to {% if is_restock %}release the stock{% else %}complete the write-off{% endif %}.</p>
   {% elif transfer.status == 'Released' %}
-  <p class="gv-meta">Moved to the floor — waiting on {{ transfer.destination_branch }} to confirm receipt.</p>
+  <p class="tx-next tx-next-info">Moved to the floor — waiting on {{ transfer.destination_branch }} to confirm receipt.</p>
   {% endif %}
+  {% if transfer.flag_reason %}<div class="banner banner-error">Discrepancy: {{ transfer.flag_reason }}</div>{% endif %}
 
-  <div class="stack" style="gap:8px; margin:12px 0;">
-    <div class="row wrap" style="gap:8px 32px;">
-      <div><span class="gv-meta">From</span> {{ transfer.source_branch }}</div>
-      <div><span class="gv-meta">To</span> {{ transfer.destination_branch|default:"N/A (write-off/display)" }}</div>
-    </div>
-    <div class="row wrap" style="gap:8px 32px;">
-      <div><span class="gv-meta">{% if transfer.purpose == 'Branch Restock' %}Transfer Type{% else %}Reason for Write-off{% endif %}</span>
-        {% if transfer.purpose == 'Branch Restock' %}Floor Refill{% elif transfer.purpose == 'Damaged/Spoiled' %}Damaged or Spoiled{% elif transfer.purpose == 'Sample/Display' %}Used for Display or Sample{% else %}{{ transfer.purpose }}{% endif %}
-      </div>
-      <div><span class="gv-meta">Date</span> {{ transfer.transfer_date|date:"Y-m-d" }}</div>
-    </div>
-    <div class="row wrap" style="gap:8px 32px;">
-      <div><span class="gv-meta">Requested by</span> {{ transfer.requested_by.username|default:"—" }}</div>
-      <div><span class="gv-meta">Approved by</span> {{ transfer.approved_by.username|default:"—" }}</div>
-    </div>
-    {% if transfer.received_qty is not None %}
-    <div class="row wrap" style="gap:8px 32px;">
-      <div><span class="gv-meta">Received qty</span> {{ transfer.received_qty }}</div>
-      <div><span class="gv-meta">Confirmed by</span> {{ transfer.acknowledged_by.username|default:"—" }}</div>
-    </div>
+  <dl class="tx-facts">
+    {% if is_restock %}
+    <div><dt>From</dt><dd>{{ transfer.source_branch|default:"—" }}</dd></div>
+    <div><dt>To</dt><dd>{{ transfer.destination_branch|default:"—" }}</dd></div>
+    <div><dt>Transfer Type</dt><dd>Floor Refill</dd></div>
+    {% else %}
+    <div><dt>Branch</dt><dd>{{ transfer.source_branch|default:"—" }}</dd></div>
+    <div><dt>Reason for Write-off</dt><dd>{% if transfer.purpose == 'Damaged/Spoiled' %}Damaged or Spoiled{% elif transfer.purpose == 'Sample/Display' %}Used for Display or Sample{% else %}{{ transfer.purpose }}{% endif %}</dd></div>
     {% endif %}
-    {% if transfer.flag_reason %}<div class="banner banner-error">Discrepancy: {{ transfer.flag_reason }}</div>{% endif %}
-  </div>
+    <div><dt>Date</dt><dd>{{ transfer.transfer_date|date:"Y-m-d"|default:"—" }}</dd></div>
+    <div><dt>Requested by</dt><dd>{{ transfer.requested_by.username|default:"—" }}<span class="gv-meta">{{ transfer.created_at|date:"Y-m-d H:i" }}</span></dd></div>
+    <div><dt>{% if transfer.status == 'Rejected' %}Rejected by{% else %}Approved by{% endif %}</dt><dd>{{ transfer.approved_by.username|default:"—" }}</dd></div>
+    {% if transfer.acknowledged_by or transfer.received_qty is not None %}
+    <div><dt>{% if is_restock %}Confirmed by{% else %}Completed by{% endif %}</dt><dd>{{ transfer.acknowledged_by.username|default:"—" }}</dd></div>
+    {% endif %}
+    {% if transfer.notes %}<div class="tx-wide"><dt>Notes</dt><dd>{{ transfer.notes }}</dd></div>{% endif %}
+  </dl>
 
-  <h3>Items</h3>
-  <div class="table-wrap">
-  <table class="gv-table">
-    <thead><tr><th>Product</th><th class="num">Requested</th><th class="num">Approved</th>
-      {% comment %}
-      Only meaningful once picking has happened — before that the column
-      would be a wall of zeros that reads like nothing was approved.
-      {% endcomment %}
-      {% if transfer.status == 'Released' or transfer.status == 'Acknowledged' or transfer.status == 'Discrepancy' %}
-      <th class="num">Picked</th><th>How</th>{% endif %}</tr></thead>
-    <tbody>
-    {% for it in items %}
-    <tr><td data-label="Product">{{ it.product.product_name }}</td>
-        <td class="num" data-label="Requested">{{ it.quantity_requested }}</td>
-        <td class="num" data-label="Approved">{{ it.quantity_approved }}</td>
-        {% if transfer.status == 'Released' or transfer.status == 'Acknowledged' or transfer.status == 'Discrepancy' %}
-        <td class="num" data-label="Picked">
-          {{ it.quantity_released }}{% if it.quantity_released < it.quantity_approved %}
-          <span class="pill pill-warn">Short</span>{% endif %}</td>
-        <td data-label="How"><span class="gv-meta">{{ it.get_release_method_display|default:"—" }}</span></td>
-        {% endif %}</tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
+  <section class="tx-section" aria-label="Quantities">
+    <h3>Items</h3>
+    {% comment %}
+    Requested → Approved → Picked → Received as one running tally, so a
+    shortfall is visible without reading the table: each step is amber when
+    it fell short of the one before, and Received turns red when it does not
+    match what was picked. A stage only appears once the slip has reached it.
+    {% endcomment %}
+    <ol class="tx-stages">
+      {% for s in qty_stages %}
+      <li class="tx-stage{% if s.tone %} tx-stage-{{ s.tone }}{% endif %}"><span class="tx-stage-label">{{ s.label }}</span><span class="tx-stage-value">{{ s.value }}</span></li>
+      {% endfor %}
+    </ol>
+    <div class="table-wrap">
+    <table class="gv-table tx-items">
+      <thead><tr><th>Product</th><th class="num">Requested</th>
+        {% comment %}
+        Approved and Picked only mean something once the slip has got that far
+        — before then the column would be a wall of zeros that reads like
+        nothing was approved.
+        {% endcomment %}
+        {% if show_approved %}<th class="num">Approved</th>{% endif %}
+        {% if show_picked %}<th class="num">{% if is_restock %}Picked{% else %}Removed{% endif %}</th><th>How counted</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for it in items %}
+      <tr><td data-label="Product" class="tx-product">{{ it.product.product_name }}</td>
+          <td class="num" data-label="Requested">{{ it.quantity_requested }}</td>
+          {% if show_approved %}<td class="num" data-label="Approved">{{ it.quantity_approved }}</td>{% endif %}
+          {% if show_picked %}
+          <td class="num" data-label="{% if is_restock %}Picked{% else %}Removed{% endif %}">
+            {{ it.quantity_released }}{% if it.quantity_released < it.quantity_approved %}
+            <span class="pill pill-warn">Short</span>{% endif %}</td>
+          <td data-label="How counted"><span class="gv-meta">{{ it.get_release_method_display|default:"—" }}</span></td>
+          {% endif %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </section>
 
-  {% if module_actions.withdrawals.edit %}<div class="row wrap mt-4">
+  {% if module_actions.withdrawals.edit %}{% if transfer.status == 'Pending' and can_source_act or transfer.status == 'Approved' and can_source_act or transfer.status == 'Released' and can_destination_act %}<div class="tx-actions">
     {% if transfer.status == 'Pending' and can_source_act %}
       <a class="btn btn-primary" href="{% url 'transfer_approve' transfer.pk %}">Review &amp; Approve</a>
     {% elif transfer.status == 'Approved' and can_source_act %}
@@ -101,38 +106,50 @@
       A link now, not a direct POST: releasing goes through a picking screen
       where each item is scanned or counted before any stock moves.
       {% endcomment %}
-      <a class="btn btn-primary" href="{% url 'transfer_complete' transfer.pk %}">{% if transfer.purpose == 'Branch Restock' %}Pick &amp; Move Stock to Floor{% else %}Review &amp; Complete Write-off{% endif %}</a>
+      <a class="btn btn-primary" href="{% url 'transfer_complete' transfer.pk %}">{% if is_restock %}Pick &amp; Move Stock to Floor{% else %}Review &amp; Complete Write-off{% endif %}</a>
     {% elif transfer.status == 'Released' and can_destination_act %}
-      <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" class="row wrap">{% csrf_token %}
-        <input type="number" name="received_qty" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" placeholder="received qty" style="flex:1 1 120px;">
+      <form method="post" action="{% url 'transfer_confirm_receipt' transfer.pk %}" class="tx-panel">{% csrf_token %}
+        <h4>Everything arrived?</h4>
+        <label class="tx-field">Quantity received <span class="gv-meta">Leave blank if the full approved amount arrived.</span>
+          <input type="number" name="received_qty" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" placeholder="received qty">
+        </label>
         <button type="submit" class="btn btn-primary">{% include "partials/_empty_icon.html" with icon="check" %} Confirm Received on Floor</button></form>
-      <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" class="row wrap">{% csrf_token %}
+      <form method="post" action="{% url 'transfer_flag_discrepancy' transfer.pk %}" class="tx-panel">{% csrf_token %}
+        <h4>Something is off?</h4>
         {% for it in items %}
           <input type="hidden" name="item_id" value="{{ it.pk|unlocalize }}">
-          <label class="gv-meta">{{ it.product.product_name }} received
-            <input type="number" name="quantity_received" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" value="{{ it.quantity_released|unlocalize }}" required style="width:90px;">
+          <label class="tx-field tx-recv">
+            <span class="tx-recv-name">{{ it.product.product_name }} received</span>
+            <input type="number" name="quantity_received" min="0" max="{{ limits.max_qty }}" step="1" data-label="Received quantity" value="{{ it.quantity_released|unlocalize }}" required>
           </label>
         {% endfor %}
-        <input type="text" name="flag_reason" placeholder="reason" required style="flex:1 1 140px;">
+        <label class="tx-field">Reason
+          <input type="text" name="flag_reason" placeholder="reason" required>
+        </label>
         <button type="submit" class="btn btn-danger">{% include "partials/_empty_icon.html" with icon="flag" %} Flag Discrepancy</button></form>
     {% endif %}
-  </div>{% endif %}
+  </div>{% endif %}{% endif %}
 
-  {% if transfer.events.all %}
-  <h3 class="mt-4">{% if transfer.purpose == 'Branch Restock' %}Transfer History{% else %}Write-off History{% endif %}</h3>
-  <div class="card card-pad">
-    {% for event in transfer.events.all %}
-      <div class="row wrap" style="justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--line-soft);">
-        <span>
-          {% if event.from_status == 'Acknowledged' %}{% if transfer.purpose == 'Branch Restock' %}Received on Floor{% else %}Completed{% endif %}{% else %}{{ event.from_status|default:"Created" }}{% endif %}
-          &rarr;
-          {% if event.to_status == 'Acknowledged' %}{% if transfer.purpose == 'Branch Restock' %}Received on Floor{% else %}Completed{% endif %}{% else %}{{ event.to_status }}{% endif %}
-          {% if event.note %} — {{ event.note }}{% endif %}
-        </span>
-        <span class="gv-meta">{{ event.actor.username|default:"System" }} · {{ event.created_at|date:"Y-m-d H:i" }}</span>
-      </div>
-    {% endfor %}
-  </div>
+  {% if history %}
+  <section class="tx-section" aria-label="History">
+    <h3>{% if is_restock %}Transfer History{% else %}Write-off History{% endif %}</h3>
+    {% comment %}
+    One row per recorded transition, oldest first: what changed, who did it
+    and when, then the note they left. Rows come straight from
+    StockTransferEvent, so nothing here can drift from the audit trail.
+    {% endcomment %}
+    <ol class="tx-history">
+      {% for h in history %}
+      <li class="tx-step tx-step-{{ h.tone }}">
+        <div class="tx-step-head">
+          <span class="tx-step-change"><span class="gv-meta">{{ h.from_label }}</span> &rarr; <span class="pill pill-{{ h.tone }}">{{ h.label }}</span></span>
+          <span class="gv-meta tx-step-who">{{ h.actor }} · {{ h.at|date:"Y-m-d H:i" }}</span>
+        </div>
+        {% if h.note %}<p class="tx-step-note">{{ h.note }}</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
   {% endif %}
 </div>
 {% endblock %}

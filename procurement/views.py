@@ -3267,10 +3267,28 @@ def supplier_detail(request, pk):
         'supplier_profile__supplier_name'
     )
 
+    # Two lists on one page, so each gets its own page parameter; the pager
+    # tag only replaces its own, which keeps the other list where it was.
+    links_page = paginate(
+        request, links.order_by('product__product_name', 'pk'),
+        param='products_page',
+    )
+    orders_page = paginate(
+        request,
+        scope_queryset(
+            Procurement.objects.filter(supplier=supplier).select_related('branch'),
+            request.user,
+        ).order_by('-order_date', '-pk'),
+        param='orders_page',
+    )
+
     return render(request, 'procurement/supplier_detail.html', {
         'supplier': supplier,
         'profile': getattr(supplier, 'supplier_profile', None),
-        'links': links,
+        'links': links_page.object_list,
+        'links_page': links_page,
+        'recent_orders': orders_page.object_list,
+        'orders_page': orders_page,
         'pending_offers': pending_offers,
         'pending_requests': supplier.product_requests.filter(
             status=SupplierProductRequest.Status.PENDING
@@ -3290,10 +3308,6 @@ def supplier_detail(request, pk):
             request.user.role == User.Role.OWNER
             and user_can_perform_module_action(request.user, PROCUREMENT, DELETE)
         ),
-        'recent_orders': scope_queryset(
-            Procurement.objects.filter(supplier=supplier).select_related('branch'),
-            request.user,
-        ).order_by('-order_date')[:5],
     })
 
 

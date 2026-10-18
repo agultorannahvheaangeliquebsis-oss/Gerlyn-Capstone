@@ -96,13 +96,21 @@ class BillingRecord(models.Model):
     # No payment gateway is integrated, so for a remote settlement the
     # reference number and the screenshot ARE the record that it happened:
     # GCash and bank transfers need both, a card payment needs the slip/
-    # screenshot (a card has no reference the counter can key in), and the
-    # counter-settled methods (Cash, Cash on Delivery, Pay at Store) leave
-    # nothing to attach. One definition — the web form, the API serializer,
-    # billing_confirm and checkout all read these, so they cannot drift apart.
+    # screenshot (a card has no reference the counter can key in), and Cash on
+    # Delivery needs the rider's receipt photo — the money changes hands at
+    # the door, so with no gateway that photo is the only evidence it did.
+    # Cash and Pay at Store are counter-settled and leave nothing to attach.
+    # One definition — the web form, the API serializer, billing_confirm and
+    # checkout all read these, so they cannot drift apart.
+    #
+    # COD is a proof-at-VERIFY rule, not proof-at-checkout: the customer has
+    # nothing to show when they place the order, so checkout never asks for it
+    # (orders.customer_views only gates GCash) and the order stays Pending
+    # until staff upload the photo and mark it Paid.
     REFERENCE_REQUIRED_METHODS = {PaymentMethod.GCASH, PaymentMethod.BANK_TRANSFER}
     PROOF_REQUIRED_METHODS = {
         PaymentMethod.GCASH, PaymentMethod.BANK_TRANSFER, PaymentMethod.CARD,
+        PaymentMethod.COD,
     }
 
     @classmethod

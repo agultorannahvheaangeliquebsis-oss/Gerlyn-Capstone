@@ -228,7 +228,10 @@
     var rect = el.getBoundingClientRect();
     var needed = panel.offsetHeight || 200;
     var wrap = el.closest('.table-wrap');
-    var wrapRect = wrap ? wrap.getBoundingClientRect() : null;
+    /* A wrap that lets its menus overflow (overflow:visible, e.g. Branch
+       Management) doesn't clip the panel, so only the viewport bounds it. */
+    var clips = wrap && window.getComputedStyle(wrap).overflowY !== 'visible';
+    var wrapRect = clips ? wrap.getBoundingClientRect() : null;
     var bottomLimit = wrapRect ? Math.min(wrapRect.bottom, window.innerHeight) : window.innerHeight;
     var topLimit = wrapRect ? Math.max(wrapRect.top, 0) : 0;
     var fitsBelow = rect.bottom + needed <= bottomLimit;

@@ -87,7 +87,16 @@
   .gv-table row (and the Items table's own .od-table padding, promoted to
   gerlyn.css) is what made it so tall.
   {% endcomment %}
-  .od-refund-wrap { max-width: 820px; }
+  {% comment %}
+  Two columns: the product lines on the left (in a box that scrolls once an
+  order has many lines, with the header row pinned), the reason / note /
+  method fields and the submit button on the right. One column on narrow
+  screens.
+  {% endcomment %}
+  .od-refund-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: var(--s5, 24px); align-items: start; }
+  .od-refund-lines { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+  .od-refund-wrap { max-height: 340px; overflow: auto; border: 1px solid var(--line-soft); border-radius: var(--r-card); }
+  .od-refund thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); }
   .od-refund th.od-w-check, .od-refund td.od-w-check { width: 44px; padding-right: 0; }
   .od-refund th.od-w-num { width: 96px; }
   .od-refund th.od-w-cond { width: 170px; }
@@ -95,7 +104,8 @@
   .od-refund input, .od-refund select { min-height: 36px; }
   .od-check { display: flex; align-items: flex-start; gap: var(--s2); font-size: 14px; }
   .od-check input { margin-top: 3px; flex: none; }
-  .od-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: var(--s3); align-items: end; }
+  .od-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
+  .od-fields .btn { width: 100%; }
 
   {% comment %}
   Status history: secondary, so it is a collapsed row that names the latest
@@ -137,6 +147,7 @@
   .od-log .od-when { display: block; font-size: 13.5px; color: var(--ink-600); margin-bottom: 2px; }
 
   @media (max-width: 860px) {
+    .od-refund-layout { grid-template-columns: minmax(0, 1fr); }
     .od-refund td.od-w-check { width: 100%; padding-right: 14px; }
     .od-btn { min-height: var(--touch); }
   }
@@ -744,6 +755,8 @@ Branch Manager requests are approved as they are submitted; Staff's wait.
         data-confirm-ok="Send request"
         {% endif %}>
     {% csrf_token %}
+    <div class="od-refund-layout">
+    <div class="od-refund-lines">
     <div class="od-refund-wrap">
       <table class="gv-table od-table od-refund" style="border:0;">
         <thead>
@@ -781,6 +794,7 @@ Branch Manager requests are approved as they are submitted; Staff's wait.
       <input type="checkbox" name="refund_all" value="1">
       <span>Refund everything still refundable on this order (full refund) — ignores the selection and quantities above, but uses each line's condition.</span>
     </label>
+    </div>
     <div class="od-fields">
       <div class="field">
         <label for="refund_reason_code">Reason</label>
@@ -809,6 +823,7 @@ Branch Manager requests are approved as they are submitted; Staff's wait.
           {% if can_decide_refunds %}Issue refund{% else %}Request refund{% endif %}
         </button>
       </div>
+    </div>
     </div>
   </form>
 </div>

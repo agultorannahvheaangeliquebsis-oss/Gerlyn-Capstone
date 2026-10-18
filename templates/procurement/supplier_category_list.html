@@ -6,92 +6,176 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Supplier Categories</h1>
-    <p class="gv-meta">The list shown in a supplier's Category dropdown. Linking product categories narrows what a supplier of that kind is offered when adding products.</p>
+    <a class="back-link" href="{% url 'supplier_list' %}">Suppliers</a>
+    <h1 class="mt-2">Supplier Categories</h1>
+    <p class="gv-meta">The kinds of supplier you can pick from. Linking product categories limits which products a supplier of that kind can be offered.</p>
   </div>
-  <a class="btn" href="{% url 'supplier_list' %}">Back to Suppliers</a>
+  <div class="row-actions">
+    {% if can_add %}
+    <button type="button" class="btn btn-primary" id="open-add-category-modal">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add Category
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card table-wrap">
+  <table class="gv-table" id="category-table">
+    <thead>
+      <tr><th>Category</th><th>Product categories</th><th class="num">Suppliers</th><th>Status</th>
+          {% if can_edit or can_delete %}<th class="end">Actions</th>{% endif %}</tr>
+    </thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td data-label="Category" class="strong">{{ c.name }}</td>
+        <td data-label="Product categories">
+          {% for pc in c.product_categories.all %}<span class="tag">{{ pc.category_name }}</span> {% empty %}<span class="gv-meta">Any product</span>{% endfor %}
+        </td>
+        <td data-label="Suppliers" class="num">{{ c.supplier_count }}</td>
+        <td data-label="Status">
+          {% if c.is_active %}<span class="pill pill-ok">Active</span>{% else %}<span class="pill pill-neutral">Inactive</span>{% endif %}
+        </td>
+        {% if can_edit or can_delete %}
+        <td data-label="Actions">
+          <span class="row-actions">
+            {% if can_edit %}
+            <button type="button" class="icon-btn icon-btn-action" data-edit-category
+                    data-action="{% url 'supplier_category_edit' c.pk %}"
+                    data-name="{{ c.name }}"
+                    data-active="{% if c.is_active %}1{% else %}0{% endif %}"
+                    data-products="{% for pc in c.product_categories.all %}{{ pc.pk|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}"
+                    title="Edit" aria-label="Edit {{ c.name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+            {% endif %}
+            {% if can_delete %}
+            {% if c.supplier_count %}
+            <button type="button" class="icon-btn icon-btn-danger" disabled
+                    title="Used by {{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }} — mark it inactive instead"
+                    aria-label="Cannot delete {{ c.name }}: used by {{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            {% else %}
+            {# confirm-dialog.js draws the confirmation off this submit; no JS -> it POSTs straight through. #}
+            <form method="POST" action="{% url 'supplier_category_delete' c.pk %}" style="display:inline;"
+                  data-confirm="“{{ c.name }}” will be removed for good. No suppliers use it, so nothing else changes."
+                  data-confirm-title="Delete this category?"
+                  data-confirm-variant="danger"
+                  data-confirm-ok="Delete category">
+              {% csrf_token %}
+              <button type="submit" class="icon-btn icon-btn-danger" title="Delete" aria-label="Delete {{ c.name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            </form>
+            {% endif %}
+            {% endif %}
+          </span>
+        </td>
+        {% endif %}
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty">
+        <h3>No supplier categories yet</h3>
+        <p>{% if can_add %}Use “Add Category” to create the first one.{% else %}The Owner adds these.{% endif %}</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 {% if can_add %}
-<div class="card card-pad mb-4">
-  <h3 class="mb-4">Add a category</h3>
-  <form method="POST" action="{% url 'supplier_category_add' %}">
-    {% csrf_token %}
-    <div class="field">
-      <label for="new-category-name">Name</label>
-      <input id="new-category-name" type="text" name="name" required maxlength="100" placeholder="Canned Goods">
-    </div>
-    {% if product_categories %}
-    <div class="field">
-      <label>Product categories <span class="gv-meta">— optional</span></label>
-      <div class="check-group">
-        {% for pc in product_categories %}
-        <label><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"> {{ pc.category_name }}</label>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Add category</button>
-    </div>
-  </form>
-</div>
+{% url 'supplier_category_add' as add_action %}
+{% include "procurement/_supplier_category_modal.html" with which="add" title="Add Category" action=add_action submit_label="Add Category" %}
 {% endif %}
+{% if can_edit %}
+{% include "procurement/_supplier_category_modal.html" with which="edit" title="Edit Category" action="" submit_label="Save Changes" %}
+{% endif %}
+{% endblock %}
 
-{% for c in categories %}
-<div class="card card-pad mb-4">
-  <div class="row-between mb-4">
-    <h3>{{ c.name }}
-      {% if not c.is_active %}<span class="tag">Inactive</span>{% endif %}
-    </h3>
-    <span class="gv-meta">{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }}</span>
-  </div>
-  {% if can_edit or can_delete %}
-  {% if can_edit %}
-  <form id="cat-form-{{ c.pk|unlocalize }}" method="POST" action="{% url 'supplier_category_edit' c.pk %}">
-    {% csrf_token %}
-    <div class="field">
-      <label for="cat-name-{{ c.pk|unlocalize }}">Name</label>
-      <input id="cat-name-{{ c.pk|unlocalize }}" type="text" name="name" value="{{ c.name }}" required maxlength="100">
-    </div>
-    {% if product_categories %}
-    <div class="field">
-      <label>Product categories</label>
-      <div class="check-group">
-        {% for pc in product_categories %}
-        <label><input type="checkbox" name="product_categories" value="{{ pc.pk|unlocalize }}"{% if pc in c.product_categories.all %} checked{% endif %}> {{ pc.category_name }}</label>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    <div class="field">
-      <label class="check-option"><input type="checkbox" name="is_active"{% if c.is_active %} checked{% endif %}> Active — can be picked for suppliers</label>
-    </div>
-  </form>
-  {% endif %}
-  <div class="form-actions">
-    {% if can_edit %}<button type="submit" form="cat-form-{{ c.pk|unlocalize }}" class="btn btn-primary">Save</button>{% endif %}
-    {% if can_delete %}<form method="POST" action="{% url 'supplier_category_delete' c.pk %}"
-          data-confirm="{% if c.supplier_count %}{{ c.supplier_count }} supplier{{ c.supplier_count|pluralize }} still use{{ c.supplier_count|pluralize:'s,' }} this category, so it can't be deleted. Mark it inactive instead.{% else %}Nothing uses this category, so it is removed for good.{% endif %}"
-          data-confirm-title="Delete this category?"
-          data-confirm-variant="danger"
-          data-confirm-ok="Delete category">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-danger">Delete</button>
-    </form>{% endif %}
-  </div>
-  {% else %}
-  <div>
-    {% for pc in c.product_categories.all %}<span class="tag">{{ pc.category_name }}</span> {% empty %}<span class="gv-meta">No product categories linked.</span>{% endfor %}
-  </div>
-  {% endif %}
-</div>
-{% empty %}
-<div class="card card-pad">
-  <div class="empty">
-    <h3>No supplier categories yet</h3>
-    <p>{% if can_add %}Add the first one above.{% else %}The Owner adds these.{% endif %}</p>
-  </div>
-</div>
-{% endfor %}
+{% block extra_js %}
+{% if can_add or can_edit %}
+<script>
+(function () {
+  initModal({
+    modalId: 'add-category-modal',
+    openerIds: ['open-add-category-modal'],
+    closerIds: ['close-add-category-modal', 'cancel-add-category-modal'],
+  });
+  initModal({
+    modalId: 'edit-category-modal',
+    closerIds: ['close-edit-category-modal', 'cancel-edit-category-modal'],
+  });
+
+  /* Per modal: the "N selected" count, and a guard that turns an accidental
+     dismiss (X, Cancel, backdrop, Esc) with unsaved edits into an inline
+     "Discard / Keep editing" choice. Capture-phase listeners run before
+     initModal's own close handlers, so they can stop the close. */
+  function guardModal(which) {
+    var modal = document.getElementById(which + '-category-modal');
+    if (!modal) return null;
+    var form = document.getElementById(which + '-category-form');
+    var bar = document.getElementById(which + '-category-discard');
+    var countEl = form.querySelector('[data-check-count]');
+    var initial = '';
+    var bypass = false;
+
+    function state() {
+      return JSON.stringify([
+        form.elements.name.value,
+        Array.prototype.map.call(form.querySelectorAll('input[type="checkbox"]'),
+          function (cb) { return cb.checked; })
+      ]);
+    }
+    function snapshot() { initial = state(); bar.hidden = true; count(); }
+    function count() {
+      if (countEl) countEl.textContent = form.querySelectorAll('input[name="product_categories"]:checked').length;
+    }
+    function dismiss(e) {
+      if (bypass || !modal.classList.contains('is-open') || state() === initial) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      bar.hidden = false;
+      bar.querySelector('[data-discard-keep]').focus();
+    }
+
+    form.addEventListener('change', count);
+    ['close-' + which + '-category-modal', 'cancel-' + which + '-category-modal'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', dismiss, true);
+    });
+    modal.addEventListener('click', function (e) { if (e.target === modal) dismiss(e); }, true);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dismiss(e); }, true);
+
+    bar.querySelector('[data-discard-keep]').addEventListener('click', function () {
+      bar.hidden = true;
+      form.elements.name.focus();
+    });
+    bar.querySelector('[data-discard-confirm]').addEventListener('click', function () {
+      bypass = true;
+      document.getElementById('close-' + which + '-category-modal').click();
+      bypass = false;
+      form.reset();
+      snapshot();
+    });
+
+    snapshot();
+    return { form: form, modal: modal, snapshot: snapshot };
+  }
+
+  guardModal('add');
+  var edit = guardModal('edit');
+  if (!edit) return;
+  document.querySelectorAll('[data-edit-category]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var linked = (btn.dataset.products || '').split(',');
+      edit.form.action = btn.dataset.action;
+      edit.form.elements.name.value = btn.dataset.name;
+      edit.form.elements.is_active.checked = btn.dataset.active === '1';
+      edit.form.querySelectorAll('input[name="product_categories"]').forEach(function (cb) {
+        cb.checked = linked.indexOf(cb.value) !== -1;
+      });
+      edit.snapshot();
+      edit.modal.classList.add('is-open');
+      document.body.style.overflow = 'hidden';
+      edit.form.elements.name.focus();
+    });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

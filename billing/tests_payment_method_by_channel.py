@@ -14,6 +14,7 @@ from django.test import Client, TestCase
 
 from accounts.models import User
 from billing.models import BillingRecord
+from billing.tests import _valid_png_file
 from branches.models import Branch
 from sales.models import SalesTransaction
 
@@ -101,7 +102,10 @@ class BillingPaymentMethodByChannelTests(TestCase):
     def test_cash_on_delivery_still_saves_for_an_online_order(self):
         """Regression guard for the other channel."""
         txn = self._txn(SalesTransaction.TransactionType.ONLINE)
-        response = self._post(txn, 'Cash on Delivery')
+        response = self._client().post(
+            f'/billing/create/{txn.pk}/',
+            {'payment_method': 'Cash on Delivery', 'proof_of_payment': _valid_png_file()},
+        )
 
         self.assertRedirects(response, f'/billing/{txn.billing_record.pk}/')
         txn.billing_record.refresh_from_db()

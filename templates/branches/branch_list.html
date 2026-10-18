@@ -19,6 +19,11 @@
   viewport would still get cut off by the table's own box.
   {% endcomment %}
   .row-menu { position: relative; display: inline-flex; }
+  .table-wrap--menu-overflow { overflow: visible; }
+  .table-wrap--menu-overflow thead th:first-child { border-top-left-radius: var(--r-card); }
+  .table-wrap--menu-overflow thead th:last-child { border-top-right-radius: var(--r-card); }
+  .table-wrap--menu-overflow tbody tr:last-child td:first-child { border-bottom-left-radius: var(--r-card); }
+  .table-wrap--menu-overflow tbody tr:last-child td:last-child { border-bottom-right-radius: var(--r-card); }
   .row-menu-trigger {
     list-style: none; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center;
@@ -62,7 +67,7 @@
   </button>
 </div>
 
-<div class="card table-wrap">
+<div class="card table-wrap table-wrap--menu-overflow">
   <table class="gv-table">
     <thead>
       <tr><th>Branch Name</th><th>Location</th><th>Manager</th>

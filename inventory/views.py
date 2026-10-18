@@ -3698,6 +3698,81 @@ def transfer_create(request):
     return redirect(f"{reverse('transfer_list')}?view=writeoffs")
 
 
+def _transfer_status_display(status, is_restock):
+    """(label, pill tone) for a slip status, worded as the list pages word it."""
+    S = StockTransfer.Status
+    if status == S.ACKNOWLEDGED:
+        return ('Received on Floor' if is_restock else 'Completed'), 'ok'
+    if status == S.RELEASED:
+        return 'Moved - Awaiting Confirmation', 'info'
+    if status == S.PENDING:
+        return ('Pending' if is_restock else 'Pending Approval'), 'warn'
+    if status in (S.DISCREPANCY, S.REJECTED):
+        return status, 'danger'
+    return status, 'info'
+
+
+def _transfer_detail_summary(transfer, items):
+    """Status, quantity stages and history rows for the detail modal/page.
+
+    Read-only presentation data derived from rows the workflow already writes
+    (items, events); nothing here changes a transition or a stock figure.
+    """
+    S = StockTransfer.Status
+    is_restock = transfer.is_warehouse_floor_transfer
+    status_label, status_tone = _transfer_status_display(transfer.status, is_restock)
+
+    requested = sum(it.quantity_requested for it in items)
+    approved = sum(it.quantity_approved for it in items)
+    picked = sum(it.quantity_released for it in items)
+    has_approval = transfer.status not in (S.PENDING, S.REJECTED)
+    has_picked = transfer.status in (S.RELEASED, S.ACKNOWLEDGED, S.DISCREPANCY)
+
+    # Each stage is compared with the one before it, so a shortfall is
+    # flagged where it first appears rather than only at the end.
+    stages = [{'label': 'Requested', 'value': requested, 'tone': ''}]
+    if has_approval:
+        stages.append({
+            'label': 'Approved', 'value': approved,
+            'tone': 'warn' if approved < requested else '',
+        })
+    if has_picked:
+        stages.append({
+            'label': 'Picked' if is_restock else 'Removed', 'value': picked,
+            'tone': 'warn' if picked < approved else '',
+        })
+    if is_restock and transfer.received_qty is not None:
+        stages.append({
+            'label': 'Received', 'value': transfer.received_qty,
+            'tone': 'danger' if transfer.received_qty != picked else '',
+        })
+
+    history = []
+    for event in transfer.events.all():
+        label, tone = _transfer_status_display(event.to_status, is_restock)
+        history.append({
+            'label': label,
+            'tone': tone,
+            'from_label': (
+                _transfer_status_display(event.from_status, is_restock)[0]
+                if event.from_status else 'Created'
+            ),
+            'actor': event.actor.username if event.actor else 'System',
+            'at': event.created_at,
+            'note': event.note,
+        })
+
+    return {
+        'is_restock': is_restock,
+        'status_label': status_label,
+        'status_tone': status_tone,
+        'qty_stages': stages,
+        'show_approved': has_approval,
+        'show_picked': has_picked,
+        'history': history,
+    }
+
+
 @login_required(login_url='accounts:login')
 def transfer_detail(request, pk):
     transfer = get_object_or_404(
@@ -3714,11 +3789,12 @@ def transfer_detail(request, pk):
         messages.error(request, 'That stock transfer or write-off is not available to you.')
         return redirect('transfer_list')
 
-    items = transfer.items.select_related('product').all()
+    items = list(transfer.items.select_related('product').all())
 
     return render(request, 'inventory/transfer_detail.html', {
         'transfer': transfer,
         'items': items,
+        **_transfer_detail_summary(transfer, items),
         'can_source_act': (
             request.user.role in [User.Role.BRANCH_MANAGER, User.Role.OWNER]
             and user_can_access_branch(request.user, transfer.source_branch_id)

@@ -109,6 +109,41 @@ class SupplierCategoryTests(TestCase):
         # ...but can look at the page read-only.
         self.assertEqual(self.client.get(reverse('supplier_category_list')).status_code, 200)
 
+    def test_page_lists_categories_as_rows_with_row_actions(self):
+        unused = SupplierCategory.objects.create(name='Unused')
+        profile = self.supplier.supplier_profile
+        profile.category = self.canned
+        profile.save()
+        response = self.client.get(reverse('supplier_category_list'))
+        self.assertContains(response, 'id="category-table"')
+        self.assertContains(response, 'add-category-modal')
+        self.assertContains(
+            response, reverse('supplier_category_edit', args=[self.canned.pk]))
+        # In-use category: delete is disabled; unused one gets a confirm form.
+        self.assertContains(response, 'Cannot delete Canned Goods')
+        self.assertContains(
+            response, reverse('supplier_category_delete', args=[unused.pk]))
+        self.assertNotContains(
+            response, reverse('supplier_category_delete', args=[self.canned.pk]))
+
+    def test_modals_use_tile_grid_and_active_switch_only_on_edit(self):
+        pc = ProductCategory.objects.create(category_name='Pantry')
+        response = self.client.get(reverse('supplier_category_list'))
+        self.assertContains(response, 'class="check-tile"', count=2)  # add + edit
+        self.assertContains(response, 'class="switch"', count=1)      # edit only
+        self.assertContains(response, 'Tick none to show every product.')
+        self.assertContains(response, 'Suppliers who already have it keep it.')
+        self.assertContains(response, f'value="{pc.pk}"', count=2)
+
+    def test_manager_sees_the_list_without_edit_controls(self):
+        manager = User.objects.create_user(
+            username='p20-mgr2', password='pw', role=User.Role.BRANCH_MANAGER)
+        self.client.force_login(manager)
+        response = self.client.get(reverse('supplier_category_list'))
+        self.assertContains(response, 'Canned Goods')
+        self.assertNotContains(response, 'icon-btn-action')
+        self.assertNotContains(response, 'add-category-modal')
+
     def test_suppliers_and_customers_cannot_open_the_page(self):
         self.client.force_login(self.supplier)
         response = self.client.get(reverse('supplier_category_list'))

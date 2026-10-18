@@ -12,6 +12,20 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.36.6',
+        'date': '2026-10-19',
+        'changes': [
+            'Stock Transfer and Write-off details are more compact, with a quantity summary, clearer people and dates, and a tidier history timeline',
+        ],
+    },
+    {
+        'version': '1.36.5',
+        'date': '2026-10-18',
+        'changes': [
+            'Dropdown lists now always open downward instead of flipping upward near the bottom of the screen',
+        ],
+    },
+    {
         'version': '1.36.4',
         'date': '2026-10-18',
         'changes': [

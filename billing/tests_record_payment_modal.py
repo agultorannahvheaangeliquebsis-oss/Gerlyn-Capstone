@@ -171,11 +171,24 @@ class RecordPaymentModalTests(TestCase):
         self.record.refresh_from_db()
         self.assertEqual(self.record.payment_method, 'GCash')
 
-    def test_cash_on_delivery_saves_with_nothing_attached(self):
+    def test_cash_on_delivery_is_refused_without_the_riders_proof(self):
+        before = self.record.payment_method
         response = self._save(payment_method='Cash on Delivery')
+        self.assertRedirects(response, self.detail_url + '?record_payment=1')
+        self.assertTrue(any('proof of payment' in m for m in self._messages(response)))
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.payment_method, before)
+        self.assertFalse(self.record.proof_of_payment)
+
+    def test_cash_on_delivery_saves_with_its_proof_and_no_reference(self):
+        response = self._save(
+            payment_method='Cash on Delivery', proof_of_payment=_valid_png_file(),
+        )
         self.assertRedirects(response, self.detail_url)
         self.record.refresh_from_db()
         self.assertEqual(self.record.payment_method, 'Cash on Delivery')
+        self.assertEqual(self.record.reference_number, '')
+        self.assertTrue(self.record.proof_of_payment)
 
     def test_a_record_that_moved_on_meanwhile_is_not_overwritten(self):
         before = self.record.payment_method
@@ -192,9 +205,15 @@ class RecordPaymentModalTests(TestCase):
     # -- the flag only chooses between two known destinations --------------------
 
     def test_without_the_flag_the_old_page_flow_is_unchanged(self):
-        response = self.client.post(self.create_url, {'payment_method': 'Cash on Delivery'})
+        response = self.client.post(
+            self.create_url,
+            {'payment_method': 'Cash on Delivery', 'proof_of_payment': _valid_png_file()},
+        )
         self.assertRedirects(response, f'/billing/{self.record.pk}/')
 
     def test_an_unknown_return_to_is_ignored(self):
-        response = self._save(payment_method='Cash on Delivery', return_to='https://evil.example/')
+        response = self._save(
+            payment_method='Cash on Delivery', proof_of_payment=_valid_png_file(),
+            return_to='https://evil.example/',
+        )
         self.assertRedirects(response, f'/billing/{self.record.pk}/')

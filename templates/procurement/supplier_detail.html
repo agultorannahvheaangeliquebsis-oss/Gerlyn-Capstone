@@ -1,5 +1,6 @@
 {% extends "internal_base.html" %}
 {% load l10n %}
+{% load pager %}
 {% block title %}{{ profile.supplier_name|default:supplier.username }}{% endblock %}
 {% block page_subtitle %}Procurement{% endblock %}
 
@@ -34,6 +35,8 @@ other record detail in the system.
     gap: var(--s4); flex-wrap: wrap; padding: var(--s4) var(--s6);
   }
   .sd-panel-head h2 { margin: 0; font-size: 18px; }
+  .sd-panel-foot { padding: 0 var(--s6) var(--s4); }
+  .sd-panel-foot .gv-pager { margin-top: var(--s3); }
   .sd-panel-head .gv-meta { margin: 2px 0 0; }
 
   {% comment %}
@@ -131,58 +134,25 @@ other record detail in the system.
   {% endif %}
 </div>
 
-<div class="od-side mb-4">
-  <div class="card card-pad od-card">
-    <h3 class="od-h">Supplier Details</h3>
-    {% comment %}
-    Label-over-value tiles, the same shape the order and billing detail pages
-    use for a record's read-only facts. Address takes .wide because it is the
-    one field that runs to a full line.
-    {% endcomment %}
-    <dl class="od-facts">
-      <div><dt>Category</dt><dd>
-        {% if profile.category %}<span class="tag">{{ profile.category.name }}</span>{% else %}—{% endif %}</dd></div>
-      <div><dt>Contact person</dt><dd>{{ profile.contact_person|default:"—" }}</dd></div>
-      <div><dt>Contact number</dt><dd class="num">{{ profile.contact_number|default:"—" }}</dd></div>
-      <div><dt>Email</dt><dd>{{ supplier.email|default:"—" }}</dd></div>
-      <div class="wide"><dt>Address</dt><dd>{{ profile.address|default:"—" }}</dd></div>
-    </dl>
-  </div>
-
-  <div class="card card-pad od-card">
-    <h3 class="od-h">Recent Orders</h3>
-    {% comment %}
-    A table rather than a stack of .row-between rows: the three pieces of an
-    order line — number, where and when, how much — are columns, and only a
-    table keeps the peso amounts on one right edge instead of letting each
-    row's branch name push them out of line.
-    {% endcomment %}
-    {% if recent_orders %}
-    <table class="gv-table od-table od-items" style="border:0;">
-      <thead>
-        <tr><th>Order</th><th>Branch</th><th class="num">Total</th></tr>
-      </thead>
-      <tbody>
-        {% for o in recent_orders %}
-        <tr>
-          <td data-label="Order" class="strong">
-            <a href="{% url 'procurement_detail' o.pk %}">{{ o.po_number }}</a>
-            <div class="gv-meta">{{ o.order_date|date:"d M Y" }}</div>
-          </td>
-          <td data-label="Branch">{{ o.branch.branch_name }}</td>
-          <td data-label="Total" class="num strong">₱{{ o.total_cost|floatformat:2 }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    {% comment %}
-    No table at all rather than an empty one: three column headings over a
-    single apologetic sentence is more chrome than content.
-    {% endcomment %}
-    <p class="gv-meta mb-0">No purchase orders have been raised with this supplier yet.</p>
-    {% endif %}
-  </div>
+{% comment %}
+Full width, one row of tiles: the card used to share a two-column grid with
+Recent Orders, which squeezed Address onto a second line. Recent Orders now
+sits below the Products panel as its own paginated card.
+{% endcomment %}
+<div class="card card-pad od-card">
+  <h3 class="od-h">Supplier Details</h3>
+  {% comment %}
+  Label-over-value tiles, the same shape the order and billing detail pages
+  use for a record's read-only facts.
+  {% endcomment %}
+  <dl class="od-facts">
+    <div><dt>Category</dt><dd>
+      {% if profile.category %}<span class="tag">{{ profile.category.name }}</span>{% else %}—{% endif %}</dd></div>
+    <div><dt>Contact person</dt><dd>{{ profile.contact_person|default:"—" }}</dd></div>
+    <div><dt>Contact number</dt><dd class="num">{{ profile.contact_number|default:"—" }}</dd></div>
+    <div><dt>Email</dt><dd>{{ supplier.email|default:"—" }}</dd></div>
+    <div><dt>Address</dt><dd>{{ profile.address|default:"—" }}</dd></div>
+  </dl>
 </div>
 
 {% comment %}
@@ -272,7 +242,7 @@ between the bar and the table, so header, bar and table are one card.
   <div class="sd-panel-head">
     <div>
       <h2>Products</h2>
-      <p class="gv-meta mb-0">{{ links|length }} product{{ links|length|pluralize }} mapped to this supplier.</p>
+      <p class="gv-meta mb-0">{{ links_page.paginator.count }} product{{ links_page.paginator.count|pluralize }} mapped to this supplier.</p>
     </div>
     {% if can_add %}
     <button type="button" class="btn btn-primary" id="open-add-product-modal">
@@ -359,10 +329,53 @@ between the bar and the table, so header, bar and table are one card.
       </tbody>
     </table>
   </div>
+  <div class="sd-panel-foot">{% pager links_page noun="product" param="products_page" %}</div>
 </section>
 
 {% if can_edit and links %}
 </form>
+{% endif %}
+
+<section class="card sd-panel">
+  <div class="sd-panel-head">
+    <div>
+      <h2>Recent Orders</h2>
+    </div>
+  </div>
+  {% comment %}
+  A table rather than a stack of .row-between rows: the three pieces of an
+  order line — number, where and when, how much — are columns, and only a
+  table keeps the peso amounts on one right edge.
+  {% endcomment %}
+  <div class="table-wrap">
+    <table class="gv-table">
+      <thead>
+        <tr><th>Order</th><th>Branch</th><th class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for o in recent_orders %}
+        <tr>
+          <td data-label="Order" class="strong">
+            <a href="{% url 'procurement_detail' o.pk %}">{{ o.po_number }}</a>
+            <div class="gv-meta">{{ o.order_date|date:"d M Y" }}</div>
+          </td>
+          <td data-label="Branch">{{ o.branch.branch_name }}</td>
+          <td data-label="Total" class="num strong">₱{{ o.total_cost|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3"><div class="empty">
+          <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
+          <h3>No purchase orders yet</h3>
+          <p>No purchase orders have been raised with this supplier yet.</p>
+        </div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sd-panel-foot">{% pager orders_page noun="order" param="orders_page" %}</div>
+</section>
+
+{% if can_edit and links %}
 
 {% comment %}
 Remove forms live OUTSIDE the transfer form — nested forms are invalid HTML

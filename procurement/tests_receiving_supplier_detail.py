@@ -187,3 +187,52 @@ class SupplierAccountStatusPillTests(TestCase):
         html = self.client.get(
             reverse('supplier_detail', args=[supplier.pk])).content.decode()
         self.assertIn('pill-warn">Pending Invite', html)
+
+
+class SupplierDetailPaginationTests(TestCase):
+    """Products and Recent Orders each carry their own "Showing x–y of n" line
+    and their own page parameter, so paging one leaves the other alone."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from procurement.models import SupplierProduct
+        cls.owner = User.objects.create_user(
+            username='sdpg-owner', password='pw', role=User.Role.OWNER)
+        cls.branch = Branch.objects.create(
+            branch_name='SDPG Branch', location='Baliuag', owner=cls.owner)
+        cls.supplier = User.objects.create_user(
+            username='sdpg-supplier', password='pw', role=User.Role.SUPPLIER)
+        SupplierProfile.objects.update_or_create(
+            user=cls.supplier, defaults={'supplier_name': 'SDPG Supply'})
+        for i in range(17):
+            product = Product.objects.create(
+                sku_code=f'SKU-SDPG-{i:02d}', product_name=f'Pager Item {i:02d}',
+                unit_price=Decimal('10.00'))
+            SupplierProduct.objects.create(
+                supplier=cls.supplier, product=product,
+                current_cost_price=Decimal('5.00'),
+                status=SupplierProduct.Status.APPROVED)
+        for i in range(16):
+            Procurement.objects.create(
+                branch=cls.branch, supplier=cls.supplier, owner=cls.owner,
+                order_date=dt.date(2026, 1, 1) + dt.timedelta(days=i),
+                status=Procurement.Status.RECEIVED, total_cost=Decimal('10.00'))
+
+    def _get(self, query=''):
+        self.client.force_login(self.owner)
+        return self.client.get(
+            reverse('supplier_detail', args=[self.supplier.pk]) + query)
+
+    def test_both_lists_show_their_own_range_and_total(self):
+        response = self._get()
+        self.assertContains(response, 'Showing 1–15 of 17 products')
+        self.assertContains(response, 'Showing 1–15 of 16 orders')
+        self.assertEqual(len(response.context['links']), 15)
+        self.assertEqual(len(response.context['recent_orders']), 15)
+
+    def test_paging_one_list_leaves_the_other_on_its_page(self):
+        response = self._get('?products_page=2')
+        self.assertContains(response, 'Showing 16–17 of 17 products')
+        self.assertContains(response, 'Showing 1–15 of 16 orders')
+        # The orders pager's links carry the products page along.
+        self.assertContains(response, '?products_page=2&amp;orders_page=2')
