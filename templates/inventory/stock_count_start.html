@@ -1,0 +1,63 @@
+{% extends "internal_base.html" %}
+{% block title %}Start a Stock Count{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+{% block branch_scope %}{% if pinned_branch %}{{ pinned_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'stock_count_list' %}">Stock Counts</a>
+    <h1 class="mt-2">Start a Stock Count</h1>
+  </div>
+</div>
+
+<div class="banner banner-info mb-4"><div class="banner-text">
+  Starting takes a snapshot of what the system says is on hand right now. You then count
+  what is physically there; nothing changes in stock until someone else reviews and
+  approves the count.
+</div></div>
+
+<form method="POST" class="card card-pad" style="max-width:640px; display:flex; flex-direction:column; gap:var(--s4);">
+  {% csrf_token %}
+  <div class="field">
+    <label for="sc-branch">Branch</label>
+    {% if is_owner %}
+    <select id="sc-branch" name="branch_id" required>
+      <option value="">Choose a branch</option>
+      {% for b in branches %}<option value="{{ b.pk }}" {% if form.branch_id == b.pk|stringformat:'s' %}selected{% endif %}>{{ b.branch_name }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <div class="field-static">{{ pinned_branch.branch_name }}</div>
+    <p class="gv-meta field-hint">Your assigned branch.</p>
+    {% endif %}
+  </div>
+
+  <fieldset class="field" style="border:0; padding:0; margin:0;">
+    <legend class="field-title" style="margin-bottom:6px;">What are you counting?</legend>
+    {% for loc in locations %}
+    <label class="row" style="gap:var(--s2); align-items:center; font-weight:400;">
+      <input type="radio" name="location" value="{{ loc }}" required {% if form.location == loc or locations|length == 1 %}checked{% endif %}>
+      {% if loc == 'Floor' %}Floor stock — the shelves customers buy from{% else %}Warehouse stock — the backroom{% endif %}
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <div class="field">
+    <label for="sc-category">Category</label>
+    <select id="sc-category" name="category">
+      <option value="">All categories</option>
+      {% for c in categories %}<option value="{{ c.pk }}" {% if form.category == c.pk|stringformat:'s' %}selected{% endif %}>{{ c.category_name }}</option>{% endfor %}
+    </select>
+    <p class="gv-meta field-hint">Count one aisle or section at a time by picking its category.</p>
+  </div>
+
+  <div class="field">
+    <label for="sc-notes">Notes <span class="gv-meta">(optional)</span></label>
+    <input type="text" id="sc-notes" name="notes" maxlength="{{ limits.max_note }}" value="{{ form.notes|default:'' }}" placeholder="e.g. Monthly count, aisle 3">
+  </div>
+
+  <div class="row" style="gap:var(--s2);">
+    <button type="submit" class="btn btn-primary">Start Count</button>
+    <a class="btn" href="{% url 'stock_count_list' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

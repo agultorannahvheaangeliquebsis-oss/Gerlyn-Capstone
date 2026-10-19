@@ -1296,8 +1296,27 @@ def correct_floor_stock_count(
     *, product, branch, counted_quantity, reason, actor, expiry_date=None,
 ):
     """Set floor stock to a physical count and write one auditable movement.
+    The Stock Adjustment form's entry point into correct_stock_count()."""
+    return correct_stock_count(
+        location=Batch.Location.FLOOR, product=product, branch=branch,
+        counted_quantity=counted_quantity, reason=reason, actor=actor,
+        expiry_date=expiry_date,
+    )
 
-    The aggregate row and its floor batches are corrected in the same locked
+
+def correct_stock_count(
+    *, location, product, branch, counted_quantity, reason, actor,
+    expiry_date=None, movement_type=StockMovement.MovementType.ADJUSTMENT,
+    reference_id=None, notes=None,
+):
+    """Set floor OR warehouse stock to a physical count, with one movement.
+
+    The one way a count changes stock: the single Stock Adjustment uses it
+    for the floor, and an approved Stock Count session uses it for either
+    location, passing its own movement_type/reference_id/notes so reports can
+    tell the two apart.
+
+    The aggregate row and its batches are corrected in the same locked
     transaction. Positive differences create a correction batch; negative
     differences consume existing batches FEFO, including expired batches
     because a physical count covers every unit actually present.
@@ -1307,23 +1326,36 @@ def correct_floor_stock_count(
         raise CountCorrectionError('Enter a reason for the correction.')
     if counted_quantity < 0 or counted_quantity > MAX_STOCK_QUANTITY:
         raise CountCorrectionError('Enter a valid counted quantity.')
+    is_floor = location == Batch.Location.FLOOR
+    if not is_floor and location != Batch.Location.WAREHOUSE:
+        raise CountCorrectionError('Choose Floor or Warehouse stock.')
 
     with transaction.atomic():
-        # This also serializes creation when no Inventory row exists yet.
+        # This also serializes creation when no stock row exists yet.
         product = Product.objects.select_for_update().get(pk=product.pk)
-        inventory, _ = Inventory.objects.select_for_update().get_or_create(
-            product=product,
-            branch=branch,
-            defaults={'quantity_on_hand': 0, 'reorder_level': 0},
-        )
-        system_quantity = inventory.quantity_on_hand
+        if is_floor:
+            stock, _ = Inventory.objects.select_for_update().get_or_create(
+                product=product,
+                branch=branch,
+                defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+            )
+        else:
+            warehouse = Warehouse.objects.filter(branch=branch).first()
+            if warehouse is None:
+                raise CountCorrectionError(f'{branch.branch_name} has no warehouse.')
+            stock, _ = WarehouseStock.objects.select_for_update().get_or_create(
+                warehouse=warehouse,
+                product=product,
+                defaults={'quantity_on_hand': 0, 'reorder_level': 0},
+            )
+        system_quantity = stock.quantity_on_hand
         difference = counted_quantity - system_quantity
 
         if difference > 0:
             Batch.objects.create(
                 product=product,
                 branch=branch,
-                location=Batch.Location.FLOOR,
+                location=location,
                 quantity=difference,
                 received_date=timezone.localdate(),
                 expiry_date=expiry_date,
@@ -1334,33 +1366,39 @@ def correct_floor_stock_count(
             consumed = Batch.consume_fefo(
                 product,
                 branch,
-                Batch.Location.FLOOR,
+                location,
                 quantity_to_remove,
                 include_expired=True,
             )
             if sum(quantity for _, quantity in consumed) != quantity_to_remove:
                 raise CountCorrectionError(
-                    'The floor-stock batches do not match the system quantity. '
+                    f'The {"floor" if is_floor else "warehouse"}-stock batches for '
+                    f'{product.product_name} do not match the system quantity. '
                     'Reconcile the batch records before lowering this count.'
                 )
 
-        inventory.quantity_on_hand = counted_quantity
-        inventory.save()
+        stock.quantity_on_hand = counted_quantity
+        stock.save()
         movement = StockMovement.objects.create(
-            inventory=inventory,
-            location_type=StockMovement.LocationType.FLOOR,
-            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            inventory=stock if is_floor else None,
+            warehouse_stock=None if is_floor else stock,
+            location_type=(
+                StockMovement.LocationType.FLOOR if is_floor
+                else StockMovement.LocationType.WAREHOUSE
+            ),
+            movement_type=movement_type,
             quantity_change=difference,
             quantity_before=system_quantity,
             quantity_after=counted_quantity,
-            notes=(
+            reference_id=reference_id,
+            notes=notes or (
                 f'Count correction — system quantity: {system_quantity}; '
                 f'counted quantity: {counted_quantity}; difference: {difference:+d}; '
                 f'reason: {reason}'
             ),
             created_by=actor,
         )
-        return inventory, movement
+        return stock, movement
 
 
 def commit_opening_stock_import(

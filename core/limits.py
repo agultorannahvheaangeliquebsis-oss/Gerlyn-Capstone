@@ -45,6 +45,12 @@ MAX_QUANTITY = 100_000
 # it is bounded; 100 is several screens of alerts at 10 rows per page.
 MAX_BULK_REFILL_ITEMS = 100
 
+# Products in one Stock Count session. The counting form posts one field per
+# line and the review form two, and Django refuses a POST with more than
+# DATA_UPLOAD_MAX_NUMBER_FIELDS (1,000) fields — so a larger branch is
+# counted in several sessions, narrowed by category.
+MAX_STOCK_COUNT_LINES = 400
+
 # Days a supplier needs to deliver.
 MAX_LEAD_TIME_DAYS = 365
 

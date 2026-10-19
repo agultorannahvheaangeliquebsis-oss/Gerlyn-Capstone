@@ -66,6 +66,29 @@ starts with one command.
 - The app no longer runs as MySQL `root`; it uses a limited `gerlyn_app` user.
 - The app refuses to start in production mode with an insecure key.
 
+### Stock Count (cycle counts) — October 2026
+The paper says stock counts are done with **mobile barcode scanning matched
+against the central database**. The scanner existed, but there was no counting
+workflow. There is now: **Inventory → Stock Counts**.
+
+- **Start** a count for one branch's **Floor** or **Warehouse** stock (optionally
+  one category). The system snapshots what it *thinks* is there.
+- **Count** on a phone: big **Scan with Camera** button, a hardware scanner, or
+  − / + for items without a barcode. Every scan is logged, including mis-scans.
+  The counter never sees the system figure (a *blind* count).
+- **Submit**, then a **second person approves** — the Owner, or a Branch Manager
+  who did not count it. The approver sees each difference (+/−, value at cost),
+  gives a reason, and only then does stock change. It changes through the same
+  path as a Stock Adjustment and is recorded as a **Stock Count Adjustment**
+  movement and in the Audit Log.
+- Sales that happen *after* an item was counted are kept. An item whose stock
+  moved *while* it was being counted must be **recounted**, never guessed.
+- Items nobody counted are **left alone** unless the counter explicitly chooses
+  "treat as zero".
+- Needs a live connection (not in the offline queue).
+
+Full rules: [`docs/stock-count.md`](docs/stock-count.md).
+
 ---
 
 ## Bugs found and fixed
@@ -301,6 +324,27 @@ the `core` acceptance suite; the full check is
 procurement reports` (pass your own `DB_NAME`). **Run it after anyone
 changes code.** If it says `FAILED`, something broke — tell the person who
 changed it.
+
+---
+
+## Test 9 — Count the shelf with a phone (3 min)
+
+1. On your phone (see Test 7), log in as **`ana`** (Staff) → **More → Stock Counts**
+   → **Start a Count** → **Floor stock** → **Start Count**.
+2. Tap **Scan with Camera** and scan a product's barcode twice — its count goes to
+   **2**. Use **+** on a product with no barcode. Tap **Save Progress**.
+3. **Submit for Approval** (leave "uncounted items untouched" selected).
+4. Try opening the review page as `ana` — **you can't**: Staff never approve.
+5. Log in as **`carlo`** (her branch's Manager) → the bell shows *"Stock count …
+   awaiting approval"* → **Review Count**. Type a reason → **Approve and Apply**.
+
+**You should see:** Floor Stock now shows the counted figures for those items,
+Stock Transfers → **Stock History** lists them as **Stock Count**, and the Owner's
+Audit Log shows *"Approved a stock count and applied its variances"*. Every
+other item's stock is unchanged.
+
+**Bonus:** have `carlo` start and count one himself, then try to approve it —
+he is refused ("someone else must review it"). The Owner can approve it.
 
 ---
 

@@ -22,6 +22,7 @@ business record plus its action link.
 | Payment verified | Pending payment moves to Paid | Customer attached to the order | Low | BillingRecord; customer order tracking |
 | Payment rejected | Pending payment moves to Rejected | Customer; Owner; affected branch Manager/Staff with Billing access; deciding actor is excluded from matrix fan-out | High | BillingRecord; customer order tracking or internal billing detail |
 | Expiry write-off | The daily expiry sweep removes one or more due batches, unattended (no actor) | Owner; affected branch Manager/Staff with access to the affected stock module | High | One notice per (branch, Floor/Warehouse Stock) group per sweep run — never per batch; Expired tab |
+| Stock count awaiting approval | A stock count session is submitted | Owner; the branch's Branch Manager(s) with Stock Counts access — not Staff (they cannot approve), and never the submitter | Medium | StockCount; its review screen. See `docs/stock-count.md` |
 
 Manager and Staff delivery is both branch-scoped and module-gated. Owners are
 global. Supplier and customer messages use their own portal links and never

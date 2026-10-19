@@ -12,6 +12,22 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.37.0',
+        'date': '2026-10-19',
+        'changes': [
+            {'text': 'New Stock Counts page (Inventory): count floor or warehouse stock with a phone camera or barcode scanner, then a second person reviews and approves the differences before stock changes', 'internal': True},
+            {'text': 'Stock count adjustments are recorded in Stock History and the Audit Log, and the Owner and Branch Manager are notified when a count is waiting for approval', 'internal': True},
+        ],
+    },
+    {
+        'version': '1.36.7',
+        'date': '2026-10-19',
+        'changes': [
+            {'text': 'Billing detail shows payment facts and the next step more clearly', 'internal': True},
+            {'text': 'Supplier Categories and Supplier detail use a shared modal', 'internal': True},
+        ],
+    },
+    {
         'version': '1.36.6',
         'date': '2026-10-19',
         'changes': [

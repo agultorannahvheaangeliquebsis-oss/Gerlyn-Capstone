@@ -22,6 +22,7 @@ BILLING = 'billing'
 PROCUREMENT = 'procurement'
 DELIVERIES = 'deliveries'
 REPORTS = 'reports'
+STOCK_COUNT = 'stock_count'
 
 # Roles allowed to see management reports (mirrors
 # core.permissions.MANAGEMENT_REPORT_ROLES, repeated as plain strings because
@@ -97,6 +98,21 @@ MODULE_PERMISSION_REGISTRY = {
             'api-warehouse-stock-detail', 'api-warehouse-detail',
         ],
         DELETE: ['api-warehouse-stock-detail', 'api-warehouse-detail'],
+    },
+    # Its own module rather than a Floor/Warehouse Stock action: one session
+    # counts either location, and a URL can only belong to one module. The
+    # views additionally require View on the stock module being counted, so
+    # this grant can only ever narrow what an account sees, never widen it.
+    # Approving is EDIT, and the view still limits it to Owner / Branch
+    # Manager and refuses the person who did the counting (maker/checker).
+    STOCK_COUNT: {
+        'label': 'Stock Counts',
+        VIEW: ['stock_count_list', 'stock_count_detail'],
+        ADD: ['stock_count_start', 'stock_count_count', 'stock_count_scan'],
+        EDIT: [
+            'stock_count_review', 'stock_count_reject', 'stock_count_recount',
+        ],
+        DELETE: ['stock_count_cancel'],
     },
     WITHDRAWALS: {
         'label': 'Stock Transfers',
@@ -235,6 +251,9 @@ ROLE_DEFAULT_ACTIONS = {
         PRODUCTS: [],
         FLOOR_STOCK: [ADD],
         WAREHOUSE_STOCK: [],
+        # Start, count, submit, cancel — and EDIT, which is approve/reject/
+        # send back for recount on a session someone else counted.
+        STOCK_COUNT: [ADD, EDIT, DELETE],
         WITHDRAWALS: [ADD, EDIT],
         # DELETE here is the expiry write-off (inventory.views.
         # expiry_write_off), not a destructive delete — it only ever zeroes
@@ -252,6 +271,9 @@ ROLE_DEFAULT_ACTIONS = {
         PRODUCTS: [],
         FLOOR_STOCK: [ADD],
         WAREHOUSE_STOCK: [],
+        # Staff count and submit; approving is never a Staff action (the
+        # view's role check, not just this default).
+        STOCK_COUNT: [ADD, DELETE],
         WITHDRAWALS: [ADD, EDIT],
         # See the Branch Manager row above — same fix, same reasoning. The
         # view's own docstring calls this "a safe operational fallback"
@@ -279,7 +301,7 @@ ROLE_DEFAULT_MODULES = {
     'BRANCH_MANAGER': list(ALL_MODULE_CODES),
     'STAFF': [
         PRODUCTS, FLOOR_STOCK, WAREHOUSE_STOCK, WITHDRAWALS, ALERTS,
-        SALES_POS, BILLING, PROCUREMENT, DELIVERIES,
+        SALES_POS, BILLING, PROCUREMENT, DELIVERIES, STOCK_COUNT,
     ],
     'SUPPLIER': [PROCUREMENT, DELIVERIES],
     'CUSTOMER': [SALES_POS, BILLING],

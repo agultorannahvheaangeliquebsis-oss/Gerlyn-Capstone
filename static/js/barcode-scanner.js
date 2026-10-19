@@ -36,8 +36,18 @@ window.GerlynBarcodeScanner = (function () {
     return e.key === 'Enter' || e.keyCode === 13;
   }
 
-  function attach(input, { onScan, cameraBtn } = {}) {
+  //
+  // `ignoreRepeatMs` (opt-in; the Stock Count screen uses it) drops the SAME
+  // code arriving again within that many milliseconds, calling onRepeat(code)
+  // instead of onScan. The camera already stops after its first decode, so
+  // a held code cannot fire twice from there; this covers a hardware scanner
+  // left in continuous/auto-trigger mode, which re-sends a code it is still
+  // pointed at. A real second unit takes longer than that to pick up and scan.
+  function attach(input, { onScan, cameraBtn, ignoreRepeatMs, onRepeat } = {}) {
     if (!input || typeof onScan !== 'function') return;
+
+    let lastCode = null;
+    let lastAt = 0;
 
     input.addEventListener('keydown', function (e) {
       if (!isEnterKey(e)) return;
@@ -45,6 +55,14 @@ window.GerlynBarcodeScanner = (function () {
       const value = input.value.trim();
       if (!value) return;
       input.value = '';
+      const now = performance.now();
+      if (ignoreRepeatMs && value === lastCode && now - lastAt < ignoreRepeatMs) {
+        lastAt = now;
+        if (typeof onRepeat === 'function') onRepeat(value);
+        return;
+      }
+      lastCode = value;
+      lastAt = now;
       onScan(value);
     });
 
