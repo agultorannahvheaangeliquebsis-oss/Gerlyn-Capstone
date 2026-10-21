@@ -34,8 +34,7 @@ running before those apps are ready.
 from decimal import Decimal
 
 from core.module_permissions import (
-    ALERTS, BILLING, DELIVERIES, FLOOR_STOCK, PROCUREMENT, STOCK_COUNT,
-    WAREHOUSE_STOCK,
+    ALERTS, BILLING, DELIVERIES, FLOOR_STOCK, PROCUREMENT, WAREHOUSE_STOCK,
 )
 
 CATEGORY_STAFF = 'staff'
@@ -66,7 +65,6 @@ EVENT_ORDER_DELIVERED = 'order_delivered'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
 EVENT_EXPIRY_WRITE_OFF = 'expiry_write_off'
-EVENT_STOCK_COUNT_SUBMITTED = 'stock_count_submitted'
 
 # Executable notification matrix.  ``internal`` means all active Owners plus
 # the branch's active Manager/Staff accounts that can access required_module.
@@ -240,21 +238,6 @@ EVENT_MATRIX = {
         'required_module': FLOOR_STOCK,
         'allowed_modules': (FLOOR_STOCK, WAREHOUSE_STOCK),
         'exclude_actor': False,
-    },
-    EVENT_STOCK_COUNT_SUBMITTED: {
-        'when': 'A stock count session is submitted and is waiting for an '
-                'approver to apply or reject its variances.',
-        'recipients': 'Owner; the branch Manager with Stock Counts access. '
-                      'Not Staff (they cannot approve), and never the person '
-                      'who submitted it.',
-        'audiences': ('internal',),
-        'category': CATEGORY_PROCUREMENT,
-        'priority': PRIORITY_MEDIUM,
-        'required_module': STOCK_COUNT,
-        # Narrows the branch half of the 'internal' audience to these roles;
-        # Owners are always included. Absent = Manager and Staff alike.
-        'internal_roles': ('BRANCH_MANAGER',),
-        'exclude_actor': True,
     },
 }
 
@@ -450,13 +433,9 @@ def notify_event(event_type, title, message, *, branch=None, actor=None,
 
     for audience in selected_audiences:
         if audience == 'internal':
-            internal_roles = rule.get('internal_roles')
             candidates.extend(
                 (audience, user)
                 for user in _recipients(branch, selected_module)
-                if internal_roles is None
-                or user.role == User.Role.OWNER
-                or user.role in internal_roles
             )
             continue
 

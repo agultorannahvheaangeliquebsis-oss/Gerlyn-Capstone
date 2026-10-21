@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import stock_count_views, views
+from . import views
 
 urlpatterns = [
     # Product Master List
@@ -36,17 +36,6 @@ urlpatterns = [
     path('warehouse/<int:pk>/edit/', views.warehouse_stock_edit, name='warehouse_stock_edit'),
     path('warehouse/request/', views.warehouse_stock_request, name='warehouse_stock_request'),
     path('warehouse/request/bulk/', views.warehouse_stock_bulk_request, name='warehouse_stock_bulk_request'),
-
-    # Stock counts (cycle counts) — see inventory/stock_count.py
-    path('counts/', stock_count_views.stock_count_list, name='stock_count_list'),
-    path('counts/new/', stock_count_views.stock_count_start, name='stock_count_start'),
-    path('counts/<int:pk>/', stock_count_views.stock_count_detail, name='stock_count_detail'),
-    path('counts/<int:pk>/count/', stock_count_views.stock_count_count, name='stock_count_count'),
-    path('counts/<int:pk>/scan/', stock_count_views.stock_count_scan, name='stock_count_scan'),
-    path('counts/<int:pk>/review/', stock_count_views.stock_count_review, name='stock_count_review'),
-    path('counts/<int:pk>/reject/', stock_count_views.stock_count_reject, name='stock_count_reject'),
-    path('counts/<int:pk>/recount/', stock_count_views.stock_count_recount, name='stock_count_recount'),
-    path('counts/<int:pk>/cancel/', stock_count_views.stock_count_cancel, name='stock_count_cancel'),
 
     # Alerts Center
     path('alerts/', views.alerts_center, name='alerts_center'),

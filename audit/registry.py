@@ -107,12 +107,6 @@ REGISTRY = {
     'inventory.OpeningStockImport': AuditConfig(
         'Opening stock import', repr_field='original_filename', branch_path='',
     ),
-    # StockCountEvent and StockCountScanLog are absent on purpose: both are
-    # append-only histories already, like the stock ledger.
-    'inventory.StockCount': AuditConfig('Stock count', repr_field='count_number'),
-    'inventory.StockCountLine': AuditConfig(
-        'Stock count line', branch_path='count.branch_id',
-    ),
     # --- procurement ---------------------------------------------------------
     'procurement.Procurement': AuditConfig('Purchase order', repr_field='po_number'),
     'procurement.ProcurementItem': AuditConfig(

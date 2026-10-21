@@ -12,6 +12,13 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.37.1',
+        'date': '2026-10-21',
+        'changes': [
+            {'text': 'Removed the separate Stock Counts page: counting stock by barcode stays in Receive Delivery, where each scanned item is checked against the purchase order', 'internal': True},
+        ],
+    },
+    {
         'version': '1.37.0',
         'date': '2026-10-19',
         'changes': [
