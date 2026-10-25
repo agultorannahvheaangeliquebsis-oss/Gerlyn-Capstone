@@ -8,7 +8,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse, QueryDict
@@ -29,6 +29,7 @@ from inventory.stats import (
 )
 from sales.models import SalesItem, SalesTransaction
 from sales.pricing import price_cart
+from sales.receipts import customer_panel
 from sales.pwd_requests import (
     new_request_fields, notify_pwd_request_submitted, request_can_reach_cart,
     validate_pwd_details,
@@ -1726,6 +1727,9 @@ def track_order(request, transaction_id):
         'steps': steps,
         'cancelled': cancelled,
         'blurb': STATUS_BLURB.get(sale.order_status, ''),
+        # "Confirm I received my order" and the receipt links (sales.receipts
+        # owns the rules; the confirm view re-checks them on POST).
+        'receipt': customer_panel(sale),
         # Only while the store hasn't started on it yet — once it's
         # Preparing, whether it can still be stopped depends on state the
         # shopper isn't shown here, so that stays a staff-side call reached

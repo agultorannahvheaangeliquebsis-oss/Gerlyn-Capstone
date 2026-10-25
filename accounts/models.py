@@ -495,6 +495,7 @@ class Notification(models.Model):
         PO_APPROVED = 'po_approved', 'Purchase order approved'
         INCOMING_DELIVERY = 'incoming_delivery', 'Incoming delivery'
         ORDER_DELIVERED = 'order_delivered', 'Order delivered'
+        ORDER_RECEIPT_CONFIRMED = 'order_receipt_confirmed', 'Order receipt confirmed'
         PAYMENT_VERIFIED = 'payment_verified', 'Payment verified'
         PAYMENT_REJECTED = 'payment_rejected', 'Payment rejected'
         EXPIRY_WRITE_OFF = 'expiry_write_off', 'Expiry write-off'

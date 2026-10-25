@@ -1,0 +1,110 @@
+{% extends "internal_base.html" %}
+{% load static %}
+{% block title %}{{ confirm_label }} — {{ transaction.order_number }}{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+  {% comment %}
+  Hand-over form: the order it is for on the left, the proof being recorded on
+  the right. A drawn signature is a canvas the size of a signature line;
+  touch-action:none is what lets a finger draw on it instead of scrolling the
+  page (static/js/signature-pad.js).
+  {% endcomment %}
+  .rcf-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: var(--s5, 24px); align-items: start; }
+  .rcf-sign { width: 100%; height: 160px; border: 1px dashed var(--line); border-radius: var(--r-card); background: var(--surface-2); touch-action: none; cursor: crosshair; display: block; }
+  .rcf-sign-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+  @media (max-width: 860px) { .rcf-layout { grid-template-columns: minmax(0, 1fr); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'transaction_detail' transaction.pk %}">{{ transaction.order_number }}</a>
+    <h1 class="mt-2">{{ confirm_label }}</h1>
+  </div>
+</div>
+
+{% if error %}
+<div class="banner banner-error" role="alert"><span>{{ error }}</span></div>
+{% endif %}
+{% if payment_block %}
+<div class="banner banner-warning"><span>{{ payment_block }}</span></div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="card card-pad" data-receipt-form>
+  {% csrf_token %}
+  <div class="rcf-layout">
+    <div>
+      <h3 class="od-h">Order</h3>
+      <dl class="od-facts">
+        <div><dt>Order</dt><dd class="strong">{{ transaction.order_number }}</dd></div>
+        <div><dt>Stage</dt><dd>{% if already_completed %}Completed{% else %}{{ hand_over_label }}{% endif %}</dd></div>
+        <div><dt>Customer</dt><dd>{{ customer_name }}</dd></div>
+        <div><dt>Branch</dt><dd>{{ transaction.branch.branch_name }}</dd></div>
+        <div><dt>{% if transaction.fulfillment_type == "Delivery" %}Deliver to{% else %}Collection{% endif %}</dt>
+          <dd>{% if transaction.fulfillment_type == "Delivery" %}{{ transaction.delivery_address|default:"—" }}{% else %}Pick up at {{ transaction.branch.branch_name }}{% endif %}</dd></div>
+        <div><dt>Items</dt><dd>{% for item in items %}{{ item.quantity_sold }} × {{ item.product.product_name|default:"(removed product)" }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
+        <div><dt>Total</dt><dd class="strong">₱{{ transaction.total_amount|floatformat:2 }}</dd></div>
+        <div><dt>Payment</dt><dd>{{ transaction.mode_of_payment }} · {% if billing %}{{ billing.status }}{% else %}No billing record{% endif %}</dd></div>
+      </dl>
+      {% if already_completed %}
+      <p class="gv-meta mt-4">This order is already <strong>Completed</strong>, without a hand-over on record. Saving
+        records who received it and issues the customer's receipt — the order's status and stock do not change.</p>
+      {% else %}
+      <p class="gv-meta mt-4">Saving this marks the order <strong>Completed</strong> — stock is deducted and the
+        {{ transaction.REFUND_WINDOW.days }}-day refund window starts — and issues the customer's receipt.</p>
+      {% endif %}
+    </div>
+
+    <div class="stack">
+      <div class="field">
+        <label for="rcf-name">Received by</label>
+        <input id="rcf-name" type="text" name="received_by_name" maxlength="150" required
+               autocomplete="off" value="{{ form.received_by_name }}">
+        <span class="gv-meta">The person who took the order — the customer, or whoever collected it for them.</span>
+      </div>
+
+      <div class="field">
+        <label for="rcf-when">Date and time received</label>
+        <input id="rcf-when" class="input" type="datetime-local" name="received_at" required
+               value="{{ form.received_at }}" min="{{ placed_value }}">
+      </div>
+
+      <div class="field">
+        <label for="rcf-photo">Proof photo <span class="gv-meta">(optional)</span></label>
+        <input id="rcf-photo" type="file" name="proof_photo"
+               accept="image/jpeg,image/png,image/webp" capture="environment">
+        <span class="gv-meta">A photo of the order at hand-over. JPEG, PNG or WEBP, up to {{ proof_max_mb }} MB.</span>
+      </div>
+
+      <div class="field" data-signature>
+        <div class="rcf-sign-bar">
+          <label for="rcf-signature">Signature <span class="gv-meta">(optional)</span></label>
+          <button type="button" class="btn btn-sm" data-signature-clear>Clear</button>
+        </div>
+        <canvas id="rcf-signature" class="rcf-sign" data-signature-canvas
+                aria-label="Signature pad — sign here with a finger, stylus or mouse"></canvas>
+        <input type="hidden" name="signature_data" value="{{ form.signature_data }}" data-signature-input>
+        <span class="gv-meta">Sign with a finger, stylus or mouse.</span>
+      </div>
+
+      <div class="field">
+        <label for="rcf-notes">Notes <span class="gv-meta">(optional)</span></label>
+        <textarea id="rcf-notes" name="notes" rows="3" maxlength="500">{{ form.notes }}</textarea>
+      </div>
+
+      <div class="row wrap">
+        <button type="submit" class="btn btn-primary" {% if payment_block %}disabled{% endif %}>{{ confirm_label }}</button>
+        <a class="btn" href="{% url 'transaction_detail' transaction.pk %}">Cancel</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/signature-pad.js' %}"></script>
+{% endblock %}

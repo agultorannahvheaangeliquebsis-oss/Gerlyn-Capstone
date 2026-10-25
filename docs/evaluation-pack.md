@@ -98,7 +98,7 @@ Reliability — the evaluators can run it themselves in under 5 seconds.
 | # | Scenario | Expected result |
 |---|---|---|
 | 1 | Staff records a walk-in sale | Stock drops · billing auto-created and Paid · attributed to that staff member |
-| 2 | Customer orders online → staff completes it | Order Pending → Completed · stock deducts **once**, only on completion |
+| 2 | Customer orders online → staff confirms the delivery or pickup | Order Pending → Completed · stock deducts **once**, only on that confirmation · a receipt number is issued |
 | 3 | Low-stock alert → PO → receive delivery | Stock rises by the **delivered** quantity · discrepancy flagged if short · audit logged |
 | 4 | Withdrawal slip released → destination confirms / flags | Confirm sets Acknowledged; Flag corrects stock + writes an Adjustment movement |
 | 5 | Governance | Tarcan manager cannot see Makinabang data or the consolidated report; staff cannot manage users; every action is attributable |

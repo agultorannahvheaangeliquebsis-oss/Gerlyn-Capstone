@@ -286,7 +286,8 @@ views can never drift apart.
 - **Branch scoping** — `core/scoping.py` filters every queryset server-side. The UI's
   branch dropdown is never the only guard.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online
-  orders deduct when marked *Completed*. Deliveries add stock only on receipt validation
+  orders deduct when *Completed* (by confirming the delivery or pickup, see below).
+  Deliveries add stock only on receipt validation
   (business rule 13), and re-receiving is blocked.
 - **ZANK POS daily-sales import** — authorized Sales / Order Console users can upload
   a ZANK CSV or `.xlsx` export, select an accessible branch, and review valid rows,
@@ -304,6 +305,26 @@ views can never drift apart.
   [Audit log](#audit-log) below.
 - **Payments are recorded, not processed** — no gateway is integrated, per the
   documented scope limitation. Staff confirm cash or a GCash reference.
+- **Delivery / pickup confirmation** — an online order's hand-over leaves proof. The
+  lifecycle has no separate "Out for delivery" / "Ready for pickup" status; both are the
+  **Preparing** stage (Delivery vs Pickup fulfilment). On a Preparing order, Staff / Branch
+  Managers / the Owner open **Confirm Delivery** (or **Confirm Receipt** for a pickup) on
+  Order Detail and record who received it, when, and optionally a photo and a signature drawn
+  on a canvas. Saving issues a receipt number (`GP-RCPT-YYYYMMDD-NNNNN`) and completes the
+  order through the same rules as the status control (payment must be Paid, stock deducted
+  once) — if payment is not Paid nothing is recorded. **This is the only way an online
+  order is completed:** the Order Detail status control no longer offers *Completed* for
+  one (a walk-in still has it), and the status endpoint refuses it. An online order that
+  was completed before that rule, with no hand-over on record, can still be recorded
+  afterwards from the same button: it issues the receipt and leaves the order's status,
+  stock and refund window untouched. The customer can add their own
+  **Confirm I received my order** on Track Order, before or after the store; once both have
+  confirmed the order is *fully confirmed*. Each side confirms once; cancelled or refunded
+  orders cannot be confirmed. The receipt is viewable and downloadable as a PDF by the
+  customer and by branch staff, the photo and signature sit on private storage served only
+  through authorization-checked views, and the Order Console has a Confirmation column and
+  filter. Code: `sales/receipts.py` (rules and service), `sales/receipt_views.py`,
+  `orders/receipt_views.py`.
 - **Refunds** — an approval workflow on a Completed + Paid order, within
   `SalesTransaction.REFUND_WINDOW` (3 days) of completion. Anyone with access to the
   order's branch (Staff included) can *request* a refund; it stays **Pending** until an

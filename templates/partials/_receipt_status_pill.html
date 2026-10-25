@@ -1,0 +1,12 @@
+{% comment %}
+Hand-over confirmation pill for OrderReceiptConfirmation.Status — one partial
+for the Order Console column. Fully confirmed is the finished state (.pill-ok);
+a half-confirmed order is information, waiting on the other side (.pill-info);
+nothing confirmed yet is neutral.
+
+Usage: {% include "partials/_receipt_status_pill.html" with status=t.receipt_status %}
+{% endcomment %}
+{% if status == 'full' %}<span class="pill pill-ok">Fully confirmed</span>
+{% elif status == 'staff' %}<span class="pill pill-info" title="The store recorded the hand-over; the customer has not confirmed yet.">Staff confirmed</span>
+{% elif status == 'customer' %}<span class="pill pill-info" title="The customer says they received it; the store has not recorded the hand-over yet.">Customer confirmed</span>
+{% else %}<span class="pill pill-neutral">Not confirmed</span>{% endif %}

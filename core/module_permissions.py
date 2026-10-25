@@ -122,6 +122,8 @@ MODULE_PERMISSION_REGISTRY = {
         'label': 'Sales / Order Console',
         VIEW: [
             'transaction_list', 'transaction_detail', 'transaction_receipt',
+            'transaction_delivery_receipt', 'transaction_delivery_receipt_pdf',
+            'transaction_receipt_evidence',
             'pos_sales_import_history',
             'api-sales-list', 'api-sales-detail', 'api-sales-refunds',
         ],
@@ -130,7 +132,8 @@ MODULE_PERMISSION_REGISTRY = {
             'pos_sales_import_cancel', 'api-sales-list',
         ],
         EDIT: [
-            'transaction_set_status', 'transaction_apply_discount',
+            'transaction_set_status', 'transaction_confirm_receipt',
+            'transaction_apply_discount',
             'transaction_pwd_request_review', 'transaction_refund',
             'transaction_refund_approve', 'transaction_refund_reject',
             'api-sales-refunds', 'api-sales-refund-approve',

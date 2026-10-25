@@ -332,16 +332,18 @@ class BillingDetailStateTests(TestCase):
         self.assertIn('The order can now be marked Completed', html)
         self._assert_links_to_canonical_order(record, html)
 
-    def test_paid_online_order_in_preparing_can_be_completed(self):
-        """D3 — the case where Completed really is the next legal step."""
+    def test_paid_online_order_in_preparing_can_be_confirmed_as_handed_over(self):
+        """D3 — an online order is completed by confirming its delivery or
+        pickup (sales.receipts), not by a plain status step, so that is what
+        the notice points at once the payment is verified."""
         record = self._record(
             status=BillingRecord.PaymentStatus.PAID,
             transaction_type=SalesTransaction.TransactionType.ONLINE,
             order_status=SalesTransaction.OrderStatus.PREPARING,
         )
-        self.assertIn(
-            'The order can now be marked Completed', self._next_step(self._html(record))
-        )
+        notice = self._next_step(self._html(record))
+        self.assertIn('The delivery or pickup can now be confirmed', notice)
+        self.assertNotIn('can now be marked Completed', notice)
 
     def test_paid_online_order_not_yet_preparing_does_not_claim_completion(self):
         """D3 — an online order goes Pending -> Approved -> Preparing ->

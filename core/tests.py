@@ -128,12 +128,16 @@ class AcceptanceTests(TestCase):
         self.assertEqual(inv.quantity_on_hand, before, 'stock must not move at checkout')
 
         staff = self.login('ana')
-        for status in ['Approved', 'Preparing', 'Completed']:
-            if status == 'Completed':
-                # An order can only be completed once its payment is Paid.
-                order.billing_record.status = 'Paid'
-                order.billing_record.save(update_fields=['status'])
+        for status in ['Approved', 'Preparing']:
             staff.post(f'/sales/{order.pk}/status/{status}/')
+        # An online order is completed by recording its hand-over, and only
+        # once its payment is Paid.
+        order.billing_record.status = 'Paid'
+        order.billing_record.save(update_fields=['status'])
+        staff.post(f'/sales/{order.pk}/confirm-receipt/', {
+            'received_by_name': 'Juan', 'received_at': '', 'notes': '',
+            'signature_data': '',
+        })
 
         order.refresh_from_db()
         inv.refresh_from_db()

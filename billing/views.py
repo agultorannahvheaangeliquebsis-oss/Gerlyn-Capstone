@@ -385,6 +385,7 @@ def billing_detail(request, pk):
 
     # Local: sales.views imports this module, so a top-level import would
     # be circular.
+    from sales import receipts as receipt_service
     from sales.views import _next_actions as _order_next_actions
 
     txn = record.transaction
@@ -430,6 +431,15 @@ def billing_detail(request, pk):
         # the order state machine here. Display only.
         'order_can_complete': (
             SalesTransaction.OrderStatus.COMPLETED in _order_next_actions(txn, request.user)
+        ),
+        # The online-order counterpart: an online order is completed by
+        # confirming its delivery / pickup, which _next_actions no longer
+        # lists as a status step. Asked of the same rule that form enforces.
+        'order_can_confirm_receipt': (
+            txn.order_status == SalesTransaction.OrderStatus.PREPARING
+            and receipt_service.staff_block_reason(
+                txn, record, receipt_service.confirmation_of(txn)
+            ) is None
         ),
         'items': list(txn.items.select_related('product')),
         # Refunds are Sales & Orders' to decide — read here only so a Paid
@@ -827,7 +837,11 @@ def billing_confirm(request, pk):
         # exactly where it was, so the next step is spelled out here rather
         # than left for whoever reads the record to work out.
         next_step = {
-            BillingRecord.PaymentStatus.PAID: ' The order can now be marked Completed.',
+            BillingRecord.PaymentStatus.PAID: (
+                ' The delivery or pickup can now be confirmed on the order.'
+                if record.transaction.transaction_type == SalesTransaction.TransactionType.ONLINE
+                else ' The order can now be marked Completed.'
+            ),
             BillingRecord.PaymentStatus.REJECTED: ' The customer has been notified; record a new payment attempt when they pay again.',
             BillingRecord.PaymentStatus.PENDING: ' It is awaiting a fresh payment attempt.',
         }.get(new_status, '')

@@ -8,6 +8,19 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
 {% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
 
+{% block extra_css %}
+<style>
+  {% comment %}
+  The Confirmation column is the eleventh in an auto-layout table that already
+  scrolls sideways on a laptop. Its pill ("Customer confirmed") is the widest
+  unbreakable run in the row, so it is allowed to wrap onto two lines instead,
+  which keeps the column — and the Action button after it — as close to the
+  screen as the other columns allow.
+  {% endcomment %}
+  #transaction-table td[data-label="Confirmation"] .pill { white-space: normal; text-align: center; line-height: 1.25; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -55,6 +68,13 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       <option value="">All Payment Methods</option>
       {% for value, label in payment_choices %}
       <option value="{{ value }}" {% if payment_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {# Hand-over confirmation (online orders): none, store only, customer only, both. #}
+    <select name="receipt" onchange="this.form.submit()" aria-label="Filter by confirmation status">
+      <option value="">All Confirmation Statuses</option>
+      {% for value, label in receipt_choices %}
+      <option value="{{ value }}" {% if receipt_filter == value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
   </div>
@@ -106,6 +126,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <th>Payment</th>
         <th>Pay Status</th>
         <th>Order Status</th>
+        <th>Confirmation</th>
         <th class="end">Action</th>
       </tr>
     </thead>
@@ -138,6 +159,12 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
           <span class="pill pill-warn" title="One or more items on this order are promised beyond the branch's current floor stock.">Over-committed</span>
           {% endif %}
         </td>
+        <td data-label="Confirmation">
+          {# Walk-in sales are handed over at the counter and a cancelled order never is: nothing to confirm. #}
+          {% if t.transaction_type == "Online" and t.order_status != "Cancelled" %}
+          {% include "partials/_receipt_status_pill.html" with status=t.receipt_status %}
+          {% else %}<span class="gv-meta" title="Nothing to confirm for this order">—</span>{% endif %}
+        </td>
         <td data-label="Action">
           <span class="row-actions">
             <a class="icon-btn icon-btn-action" href="{% url 'transaction_detail' t.pk %}"
@@ -147,7 +174,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       </tr>
       {% empty %}
       <tr>
-        <td colspan="10">
+        <td colspan="11">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="cart" %}</span>
             <h3>No orders here</h3>
@@ -159,7 +186,7 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
       {% endfor %}
       {# Shown by live-filter.js when a live search matches none of the rendered rows. #}
       <tr id="transaction-no-matches" hidden>
-        <td colspan="10">
+        <td colspan="11">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="search" %}</span>
             <h3>No orders match</h3>

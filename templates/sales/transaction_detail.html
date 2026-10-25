@@ -218,7 +218,7 @@
       {% endfor %}
     </div>
 
-    {% if next_actions %}
+    {% if next_actions or receipt_panel.can_confirm %}
     {% comment %}
     One dropdown of the steps this order may take next, instead of a button
     per step. order-detail.js points the Update button at the form of the
@@ -231,6 +231,7 @@
     Paid — the view enforces that, this just says so before the click.
     {% endcomment %}
     <div class="od-actions">
+      {% if next_actions %}
       <label class="sr-only" for="od-status-select">Change order status</label>
       <select id="od-status-select" class="od-status-select" data-status-select>
         <option value="">Change status…</option>
@@ -244,7 +245,19 @@
         {% endfor %}
       </select>
       <button type="submit" class="btn btn-primary" data-status-apply disabled>Update</button>
-      {% if 'Completed' in next_actions and not payment_is_paid %}
+      {% endif %}
+      {% comment %}
+      An online order is completed here, not from the dropdown above:
+      sales.views._next_actions no longer offers Completed for one. This is
+      where "Mark Completed" used to be, so it is the first thing a cashier
+      finds. It also records late for an order that was completed before this
+      rule and has no hand-over on file. The form itself, and
+      record_staff_confirmation, enforce the payment rule.
+      {% endcomment %}
+      {% if receipt_panel.can_confirm %}
+      <a class="btn btn-primary" href="{% url 'transaction_confirm_receipt' transaction.pk %}">{{ receipt_panel.confirm_label }}</a>
+      {% endif %}
+      {% if 'Completed' in next_actions and not payment_is_paid or receipt_panel.can_confirm and receipt_panel.payment_block %}
       <p class="od-callout">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>
         Payment must be verified as Paid first.
@@ -430,6 +443,49 @@
 {% endif %}
 {% if not from_billing and can_record_payment and module_access.billing %}
 {% include "partials/_record_payment_modal.html" %}
+{% endif %}
+
+{# ---- delivery / pickup hand-over: proof the order reached the customer, and its receipt ---- #}
+{% if receipt_panel.applies %}
+<div class="card card-pad od-card">
+  <div class="od-head">
+    <h3>{% if transaction.fulfillment_type == "Delivery" %}Delivery{% else %}Pickup{% endif %} confirmation</h3>
+    <div class="od-head-actions">
+      {% if receipt_panel.status == "full" %}<span class="pill pill-ok">{{ receipt_panel.status.label }}</span>
+      {% elif receipt_panel.status == "none" %}<span class="pill pill-neutral">{{ receipt_panel.status.label }}</span>
+      {% else %}<span class="pill pill-info">{{ receipt_panel.status.label }}</span>{% endif %}
+    </div>
+  </div>
+  {% with conf=receipt_panel.conf %}
+  {% if conf %}
+  <dl class="od-facts">
+    <div><dt>Receipt no.</dt><dd class="sku">{{ conf.receipt_number|default:"—" }}</dd></div>
+    <div><dt>Received by</dt><dd>{{ conf.received_by_name|default:"—" }}</dd></div>
+    <div><dt>Received</dt><dd>{% if conf.received_at %}{{ conf.received_at|date:"j M Y, g:i a" }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Handed over by</dt><dd>{{ receipt_panel.confirmed_by_name|default:"—" }}
+      {% if conf.staff_confirmed_at %}<span class="od-sub">{{ conf.staff_confirmed_at|date:"j M Y, g:i a" }}</span>{% endif %}</dd></div>
+    <div><dt>Customer confirmed</dt><dd>{% if conf.customer_confirmed_at %}{{ conf.customer_confirmed_at|date:"j M Y, g:i a" }}{% else %}Not yet{% endif %}</dd></div>
+    {% if conf.notes %}<div><dt>Notes</dt><dd>{{ conf.notes }}</dd></div>{% endif %}
+  </dl>
+  {% else %}
+  <p class="gv-meta mb-0">
+    {% if transaction.order_status == "Preparing" %}This order is {{ receipt_panel.hand_over_label|lower }}. Use <strong>{{ receipt_panel.confirm_label }}</strong> above once the customer has it.
+    {% elif transaction.order_status == "Completed" %}This order was completed without a delivery or pickup confirmation on record.{% if receipt_panel.can_confirm %} Use <strong>{{ receipt_panel.confirm_label }}</strong> above to record it now.{% endif %}
+    {% elif transaction.order_status == "Cancelled" %}This order was cancelled, so it cannot be confirmed.
+    {% else %}It can be confirmed once the order is {{ receipt_panel.hand_over_label|lower }} (Preparing).{% endif %}
+  </p>
+  {% endif %}
+  {% if conf.customer_confirmed_at and not conf.staff_confirmed_at %}
+  <p class="gv-meta mt-2 mb-0">The customer says they received this order. Record the hand-over to issue the receipt.</p>
+  {% endif %}
+  {% if receipt_panel.has_receipt %}
+  <div class="od-card-actions">
+    <a class="btn btn-sm od-btn" href="{% url 'transaction_delivery_receipt' transaction.pk %}">View Receipt</a>
+    <a class="btn btn-sm od-btn" href="{% url 'transaction_delivery_receipt_pdf' transaction.pk %}">Download PDF</a>
+  </div>
+  {% endif %}
+  {% endwith %}
+</div>
 {% endif %}
 
 {# ---- contextual messaging: order status vs. payment status can disagree ---- #}

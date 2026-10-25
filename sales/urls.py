@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import receipt_views, views
 
 urlpatterns = [
     path('', views.transaction_list, name='transaction_list'),
@@ -12,6 +12,17 @@ urlpatterns = [
     path('pos-import/history/<int:pk>/undo/', views.pos_sales_import_undo, name='pos_sales_import_undo'),
     path('<int:pk>/', views.transaction_detail, name='transaction_detail'),
     path('<int:pk>/receipt/', views.transaction_receipt, name='transaction_receipt'),
+    # Delivery / pickup receipt for an online order: staff record the
+    # hand-over (which completes the order), then the receipt can be opened or
+    # downloaded and its evidence images streamed (sales.receipt_views).
+    path('<int:pk>/confirm-receipt/', receipt_views.transaction_confirm_receipt,
+         name='transaction_confirm_receipt'),
+    path('<int:pk>/delivery-receipt/', receipt_views.transaction_delivery_receipt,
+         name='transaction_delivery_receipt'),
+    path('<int:pk>/delivery-receipt/pdf/', receipt_views.transaction_delivery_receipt_pdf,
+         name='transaction_delivery_receipt_pdf'),
+    path('<int:pk>/delivery-receipt/evidence/<str:kind>/', receipt_views.transaction_receipt_evidence,
+         name='transaction_receipt_evidence'),
     # Order lifecycle: Pending -> Approved -> Preparing -> Completed / Cancelled
     path('<int:pk>/status/<str:new_status>/', views.transaction_set_status,
          name='transaction_set_status'),

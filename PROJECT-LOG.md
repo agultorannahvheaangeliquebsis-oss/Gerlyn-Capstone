@@ -238,10 +238,13 @@ This is the loop that was completely broken before.
 **You should see:** an order confirmation with an order number.
 
 5. Now switch to **`ana`** → **Sales & Orders**. The order is there as **Pending**.
-6. Click **View**, then move it: **Approve → Preparing → Completed**.
+6. Click **View**, then move it: **Approve → Preparing**, then click **Confirm
+   Delivery** (the order is Cash on Delivery, so verify its payment first) and
+   fill in who received it.
 
-**You should see:** the stock only goes down **when you mark it Completed** —
-not before. That's deliberate: the item hasn't left the store until then.
+**You should see:** the stock only goes down **when the order is completed by
+that confirmation** — not before. That's deliberate: the item hasn't left the
+store until then. The order gets a receipt number (`GP-RCPT-…`).
 
 ---
 

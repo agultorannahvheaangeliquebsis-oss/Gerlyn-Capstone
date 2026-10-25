@@ -350,14 +350,20 @@ class SalesApiOnlineStockDeductionTests(OnlinePricingTestCase):
         order = SalesTransaction.objects.get(pk=response.data['id'])
 
         self.client.force_login(self.owner)
-        for status in ['Approved', 'Preparing', 'Completed']:
-            if status == 'Completed':
-                # An order can only be completed once its payment is Paid.
-                BillingRecord.objects.filter(transaction=order).update(status='Paid')
+        for status in ['Approved', 'Preparing']:
             resp = self.client.post(
                 reverse('transaction_set_status', args=[order.pk, status])
             )
             self.assertEqual(resp.status_code, 302)
+        # An online order is completed by recording its hand-over, and only
+        # once its payment is Paid.
+        BillingRecord.objects.filter(transaction=order).update(status='Paid')
+        resp = self.client.post(
+            reverse('transaction_confirm_receipt', args=[order.pk]),
+            {'received_by_name': 'Juana Cruz', 'received_at': '',
+             'notes': '', 'signature_data': ''},
+        )
+        self.assertEqual(resp.status_code, 302)
 
         order.refresh_from_db()
         inv.refresh_from_db()

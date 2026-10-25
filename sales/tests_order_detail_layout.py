@@ -59,7 +59,9 @@ class OrderDetailLayoutTests(_OrderStatusBase):
         self.assertIn('data-status-apply disabled', html)
 
     def test_completed_is_listed_but_disabled_until_the_payment_is_paid(self):
-        txn = self._order(Status.PREPARING)
+        # A walk-in settled away from the counter: its plain Completed step
+        # still lives in the dropdown.
+        txn = self._order(Status.PENDING, online=False)
         html = self._html(txn)
         option = html.split('value="od-status-form-Completed"')[1].split('</option>')[0]
         self.assertIn('disabled', option)
@@ -70,6 +72,23 @@ class OrderDetailLayoutTests(_OrderStatusBase):
         option = html.split('value="od-status-form-Completed"')[1].split('</option>')[0]
         self.assertNotIn('disabled', option)
         self.assertNotIn('Payment must be verified as Paid first.', html)
+
+    def test_an_online_order_is_completed_from_the_confirm_button_not_the_dropdown(self):
+        txn = self._order(Status.PREPARING, online=True)
+        html = self._html(txn)
+        select = html.split('data-status-select>')[1].split('</select>')[0]
+        self.assertNotIn('Completed', select)
+        self.assertNotIn('od-status-form-Completed', html)
+        self.assertNotIn(reverse('transaction_set_status', args=[txn.pk, 'Completed']), html)
+        # The way to complete it sits in the same Order Progress row.
+        row = html.split('order-progress-row')[1].split('Payment Status')[0]
+        self.assertIn(reverse('transaction_confirm_receipt', args=[txn.pk]), row)
+        self.assertIn('Payment must be verified as Paid first.', row)
+
+        BillingRecord.objects.filter(transaction=txn).update(status=BillingRecord.PaymentStatus.PAID)
+        row = self._html(txn).split('order-progress-row')[1].split('Payment Status')[0]
+        self.assertIn(reverse('transaction_confirm_receipt', args=[txn.pk]), row)
+        self.assertNotIn('Payment must be verified as Paid first.', row)
 
     def test_no_dropdown_for_a_cancelled_order(self):
         txn = self._order(Status.PENDING)
@@ -203,7 +222,10 @@ class OrderDetailLayoutTests(_OrderStatusBase):
     # -- status history ----------------------------------------------------------
 
     def test_status_history_is_one_collapsed_timeline_with_each_reason_once(self):
-        txn = self._order(Status.PREPARING, paid=True)
+        # The optional note on a Completed step belongs to the status control,
+        # which completes walk-ins (an online order is completed by its
+        # hand-over form instead).
+        txn = self._order(Status.PENDING, online=False, paid=True)
         self._post(txn, 'Completed', {'reason': 'Handed to rider'})
         html = self._html(txn)
         self.assertEqual(html.count('Status History'), 1)
@@ -214,10 +236,10 @@ class OrderDetailLayoutTests(_OrderStatusBase):
 
 class StatusTimelineTests(_OrderStatusBase):
     def test_reason_from_the_change_row_is_folded_onto_its_history_step(self):
-        txn = self._order(Status.PREPARING, paid=True)
+        txn = self._order(Status.PENDING, online=False, paid=True)
         self._post(txn, 'Completed', {'reason': 'Handed to rider'})
         steps = _status_timeline(txn)
-        self.assertEqual([s['to_status'] for s in steps], ['Preparing', 'Completed'])
+        self.assertEqual([s['to_status'] for s in steps], ['Pending', 'Completed'])
         self.assertEqual(steps[0]['from_status'], '')
         self.assertEqual(steps[-1]['note'], 'Handed to rider')
         self.assertEqual(steps[-1]['by'], self.owner)

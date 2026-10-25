@@ -19,6 +19,7 @@ business record plus its action link.
 | Supplier return update | The store raises, ships, settles or cancels a return to a supplier | The supplier | Medium | SupplierReturn; supplier portal |
 | Supplier return response | The supplier acknowledges or rejects a return request | Owner; affected branch Manager/Staff with Procurement access | Medium (High if rejected) | SupplierReturn; return detail |
 | Order delivered | An online Delivery order moves to Completed | Customer who placed it | Low | SalesTransaction; customer order tracking |
+| Order receipt confirmed | Staff record an online order's hand-over (with its receipt number), or the customer confirms they received it | Customer who placed it | Low | SalesTransaction; customer receipt (or Track Order before the store has recorded the hand-over) |
 | Payment verified | Pending payment moves to Paid | Customer attached to the order | Low | BillingRecord; customer order tracking |
 | Payment rejected | Pending payment moves to Rejected | Customer; Owner; affected branch Manager/Staff with Billing access; deciding actor is excluded from matrix fan-out | High | BillingRecord; customer order tracking or internal billing detail |
 | Expiry write-off | The daily expiry sweep removes one or more due batches, unattended (no actor) | Owner; affected branch Manager/Staff with access to the affected stock module | High | One notice per (branch, Floor/Warehouse Stock) group per sweep run — never per batch; Expired tab |

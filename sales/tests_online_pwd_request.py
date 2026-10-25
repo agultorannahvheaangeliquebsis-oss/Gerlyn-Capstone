@@ -481,12 +481,22 @@ class BillingGateTests(ReviewFixture, TestCase):
         self.assertEqual(self.billing.amount_due, FULL)
 
     def test_the_order_cannot_be_completed_around_the_gate(self):
-        """Completion needs a Paid bill, so the gate covers hand-over too."""
+        """Completion needs a Paid bill, so the gate covers hand-over too.
+        The order is put at the hand-over stage so the PAYMENT rule, not the
+        stage, is what stops it."""
+        SalesTransaction.objects.filter(pk=self.sale.pk).update(order_status='Preparing')
         self.client.force_login(self.manager)
         self.client.post(reverse('transaction_set_status', args=[self.sale.pk, 'Completed']))
+        response = self.client.post(
+            reverse('transaction_confirm_receipt', args=[self.sale.pk]),
+            {'received_by_name': 'Dana Cruz', 'received_at': '',
+             'notes': '', 'signature_data': ''},
+        )
 
+        self.assertContains(response, 'verified as Paid')
         self.sale.refresh_from_db()
-        self.assertNotEqual(self.sale.order_status, 'Completed')
+        self.assertEqual(self.sale.order_status, 'Preparing')
+        self.assertFalse(hasattr(self.sale, 'receipt_confirmation'))
 
     def test_the_billing_page_explains_why_verify_is_off(self):
         self.client.force_login(self.manager)

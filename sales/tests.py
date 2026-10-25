@@ -1115,6 +1115,15 @@ class PaymentGatesOrderCompletionTests(TestCase):
         BillingRecord.objects.filter(transaction=txn).update(status=status)
 
     def _complete(self, txn):
+        """Complete an order the way its channel completes it: a walk-in
+        through the status endpoint, an online order by recording its
+        hand-over (the status endpoint no longer offers it that step)."""
+        if txn.transaction_type == SalesTransaction.TransactionType.ONLINE:
+            return self.client.post(
+                reverse('transaction_confirm_receipt', args=[txn.pk]),
+                {'received_by_name': 'Juana Cruz', 'received_at': '',
+                 'notes': '', 'signature_data': ''},
+            )
         return self.client.post(
             reverse('transaction_set_status', args=[txn.pk, 'Completed'])
         )
@@ -1140,11 +1149,10 @@ class PaymentGatesOrderCompletionTests(TestCase):
         txn = self._online_order()
         response = self._complete(txn)
 
-        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        # The hand-over form comes back with the reason; nothing is recorded.
+        self.assertContains(response, 'verified as Paid')
         txn.refresh_from_db()
         self.assertEqual(txn.order_status, 'Preparing')
-        messages_ = [m.message for m in response.wsgi_request._messages]
-        self.assertTrue(any('verified as Paid' in m for m in messages_))
 
     def test_completing_is_refused_while_payment_is_rejected(self):
         txn = self._online_order()
@@ -1177,10 +1185,16 @@ class PaymentGatesOrderCompletionTests(TestCase):
         txn = self._online_order()
         page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
         self.assertContains(page, 'Payment must be verified as Paid first.')
+        # The hand-over form itself will not submit while the bill is unpaid.
+        form = self.client.get(reverse('transaction_confirm_receipt', args=[txn.pk]))
+        self.assertContains(form, 'verified as Paid')
+        self.assertRegex(form.content.decode(), r'<button type="submit"[^>]*\sdisabled')
 
         self._set_billing(txn, BillingRecord.PaymentStatus.PAID)
         page = self.client.get(reverse('transaction_detail', args=[txn.pk]))
         self.assertNotContains(page, 'Payment must be verified as Paid first.')
+        form = self.client.get(reverse('transaction_confirm_receipt', args=[txn.pk]))
+        self.assertNotRegex(form.content.decode(), r'<button type="submit"[^>]*\sdisabled')
 
     # -- walk-in sales ----------------------------------------------------------
 
@@ -2194,11 +2208,13 @@ class DeletedProductOnAnOldSaleTests(TestCase):
         self.product.delete()
 
         response = self.client.post(
-            reverse('transaction_set_status', args=[txn.pk, 'Completed'])
+            reverse('transaction_confirm_receipt', args=[txn.pk]),
+            {'received_by_name': 'Juana Cruz', 'received_at': '',
+             'notes': '', 'signature_data': ''},
         )
 
-        self.assertRedirects(response, reverse('transaction_detail', args=[txn.pk]))
+        # Refused, not crashed: the hand-over form comes back with the reason.
+        self.assertContains(response, 'Not enough stock for a product since removed')
         txn.refresh_from_db()
-        self.assertEqual(txn.order_status, 'Preparing')  # refused, not crashed
-        messages_ = [m.message for m in response.wsgi_request._messages]
-        self.assertTrue(any('Not enough stock for a product since removed' in m for m in messages_))
+        self.assertEqual(txn.order_status, 'Preparing')
+        self.assertFalse(hasattr(txn, 'receipt_confirmation'))

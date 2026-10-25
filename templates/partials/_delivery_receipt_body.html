@@ -1,0 +1,130 @@
+{% comment %}
+The delivery / pickup receipt as a document, shared by the staff Order Console
+(sales/delivery_receipt.html) and the customer's Track Order area
+(orders/receipt.html). The downloadable PDF is its own template
+(sales/receipt_pdf.html) because xhtml2pdf cannot render this CSS, but both are
+fed by sales.receipts.receipt_context, so they say the same thing.
+
+Needs: transaction, conf, store, billing, items (each with .price_basis),
+gross_subtotal, discount_amount, payment_method, payment_status, staff_name,
+customer_name, hand_over_label, is_delivery, and evidence_url_name +
+evidence_args (the route that streams the signature / photo to this viewer).
+{% endcomment %}
+<style>
+  .dr-doc { max-width: 640px; margin: 0 auto; background: #fff; color: #111; padding: 26px 30px;
+    border: 1px solid var(--line); border-radius: var(--r-card); font-size: 13px; line-height: 1.5; }
+  .dr-head { text-align: center; border-bottom: 2px solid #111; padding-bottom: 12px; }
+  .dr-store { font-size: 17px; font-weight: 700; }
+  .dr-sub { font-size: 12px; color: #555; margin-top: 2px; white-space: pre-line; }
+  .dr-title { font-size: 14px; font-weight: 700; letter-spacing: .12em; text-align: center; margin: 14px 0 2px; }
+  .dr-void { border: 1px dashed #a00; color: #a00; font-size: 12px; font-weight: 600; text-align: center; padding: 8px 12px; margin-top: 14px; }
+  .dr-number { text-align: center; font-weight: 700; font-size: 15px; }
+  .dr-meta { margin: 14px 0 4px; }
+  .dr-meta div { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .dr-meta .k { color: #555; }
+  .dr-meta .v { font-weight: 600; text-align: right; }
+  .dr-items { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+  .dr-items th { text-align: left; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 7px 6px; border-bottom: 2px solid #111; border-top: 1px solid #111; }
+  .dr-items td { padding: 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  .dr-items .num { text-align: right; white-space: nowrap; }
+  .dr-basis { font-size: 11px; color: #666; }
+  .dr-totals { margin-top: 10px; }
+  .dr-totals div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .dr-totals .grand { border-top: 2px solid #111; margin-top: 5px; padding-top: 8px; font-size: 15px; font-weight: 700; }
+  .dr-section { margin-top: 18px; padding-top: 12px; border-top: 1px solid #ddd; }
+  .dr-section h4 { margin: 0 0 6px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #555; }
+  .dr-evidence { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .dr-evidence figure { margin: 0; }
+  .dr-evidence img { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; background: #fff; display: block; }
+  .dr-evidence .sig { width: 240px; }
+  .dr-evidence .photo { width: 240px; }
+  .dr-evidence figcaption { font-size: 11px; color: #666; margin-top: 4px; }
+  @media print { .dr-doc { border: 0; border-radius: 0; padding: 0; } .dr-items tr { break-inside: avoid; } }
+</style>
+
+<div class="dr-doc">
+  <div class="dr-head">
+    <div class="dr-store">{% if store.receipt_letterhead %}{{ store.receipt_letterhead|linebreaksbr }}{% else %}GERLYN{% endif %}</div>
+    <div class="dr-sub">{{ transaction.branch.branch_name }}{% if transaction.branch.location %} · {{ transaction.branch.location }}{% endif %}{% if store.tin %}
+TIN {{ store.tin }}{% endif %}</div>
+  </div>
+
+  {% if voided %}<div class="dr-void">This sale was later cancelled (voided). This receipt records the hand-over only — it is not a valid proof of purchase.</div>{% endif %}
+  <div class="dr-title">{% if is_delivery %}DELIVERY RECEIPT{% else %}PICKUP RECEIPT{% endif %}</div>
+  <div class="dr-number">{{ conf.receipt_number }}</div>
+
+  <div class="dr-meta">
+    <div><span class="k">Order</span><span class="v">{{ transaction.order_number }}</span></div>
+    <div><span class="k">Ordered</span><span class="v">{{ transaction.transaction_date|date:"j M Y, g:i a" }}</span></div>
+    <div><span class="k">Customer</span><span class="v">{{ customer_name|default:"—" }}</span></div>
+    {% if is_delivery %}
+    <div><span class="k">Delivered to</span><span class="v">{{ transaction.delivery_address|default:"—" }}</span></div>
+    {% else %}
+    <div><span class="k">Picked up at</span><span class="v">{{ transaction.branch.branch_name }}</span></div>
+    {% endif %}
+    <div><span class="k">Received by</span><span class="v">{{ conf.received_by_name }}</span></div>
+    <div><span class="k">Date &amp; time received</span><span class="v">{{ conf.received_at|date:"j M Y, g:i a" }}</span></div>
+    <div><span class="k">Handed over by</span><span class="v">{{ staff_name|default:"—" }}</span></div>
+    <div><span class="k">Branch</span><span class="v">{{ transaction.branch.branch_name }}</span></div>
+    <div><span class="k">Payment method</span><span class="v">{{ payment_method }}</span></div>
+    <div><span class="k">Payment status</span><span class="v">{{ payment_status|default:"—" }}</span></div>
+  </div>
+
+  <table class="dr-items">
+    <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Subtotal</th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.product.product_name|default:"(removed product)" }}
+          {% if item.price_basis %}<div class="dr-basis">{{ item.price_basis }} price applied</div>{% endif %}</td>
+        <td class="num">{{ item.quantity_sold }}</td>
+        <td class="num">₱{{ item.unit_price|floatformat:2 }}</td>
+        <td class="num">₱{{ item.subtotal|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="dr-totals">
+    {% if discount_amount %}
+    <div><span>Subtotal</span><span>₱{{ gross_subtotal|floatformat:2 }}</span></div>
+    <div><span>Less: {{ transaction.get_discount_type_display }} discount</span><span>−₱{{ discount_amount|floatformat:2 }}</span></div>
+    {% endif %}
+    <div class="grand"><span>Total</span><span>₱{{ transaction.total_amount|floatformat:2 }}</span></div>
+  </div>
+
+  <div class="dr-section">
+    <h4>Confirmation</h4>
+    <div class="dr-meta" style="margin-top:0;">
+      <div><span class="k">Store</span><span class="v">Confirmed {{ conf.staff_confirmed_at|date:"j M Y, g:i a" }}</span></div>
+      <div><span class="k">Customer</span><span class="v">{% if conf.customer_confirmed_at %}Confirmed {{ conf.customer_confirmed_at|date:"j M Y, g:i a" }}{% else %}Not yet confirmed{% endif %}</span></div>
+      <div><span class="k">Status</span><span class="v">{{ conf.status.label }}</span></div>
+    </div>
+  </div>
+
+  {% if conf.notes %}
+  <div class="dr-section"><h4>Notes</h4>{{ conf.notes }}</div>
+  {% endif %}
+
+  <div class="dr-section">
+    <h4>Proof of receipt</h4>
+    <div class="dr-evidence">
+      {% if conf.signature %}
+      <figure>
+        <img class="sig" src="{% url evidence_url_name evidence_args.0 'signature' %}" alt="Recipient's signature">
+        <figcaption>Signature</figcaption>
+      </figure>
+      {% endif %}
+      {% if conf.proof_photo %}
+      <figure>
+        <img class="photo" src="{% url evidence_url_name evidence_args.0 'photo' %}" alt="Photo taken at hand-over">
+        <figcaption>Photo at hand-over</figcaption>
+      </figure>
+      {% endif %}
+      {% if not conf.signature and not conf.proof_photo %}
+      <span>No signature or photo was recorded.</span>
+      {% endif %}
+    </div>
+  </div>
+</div>

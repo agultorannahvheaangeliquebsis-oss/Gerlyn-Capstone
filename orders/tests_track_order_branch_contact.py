@@ -2,11 +2,12 @@
 gave no way to actually reach it. This adds a contact block showing the
 branch's name and location.
 
-Deliberately the SAFE half only: no self-serve cancel button. Whether an
-order can still be changed depends on state the shopper can't see from
-here (has staff started preparing it), so cancelling stays something the
-branch does, not a button on this page — see the audit's own guardrail
-against shipping that half.
+Cancelling is self-serve only for the window where the answer is knowable:
+while the order is still Pending or Approved the store has not started on it,
+so nothing in progress can be undone by stopping it. From Preparing on,
+whether it can still be changed depends on state the shopper can't see from
+here (how far staff got), so cancelling stays something the branch does, not a
+button on this page — the audit's guardrail against shipping that half.
 """
 from django.test import TestCase
 from django.urls import reverse
@@ -58,7 +59,21 @@ class TrackOrderBranchContactTests(TestCase):
         block = self._contact_block(response)
         self.assertIn('/about/#branches', block)
 
-    def test_no_self_serve_cancel_button_is_offered(self):
-        response = self.client.get(reverse('orders:track_order', args=[self.sale.pk]))
-        self.assertNotContains(response, 'Cancel Order')
-        self.assertNotContains(response, 'Cancel order')
+    def test_self_serve_cancel_is_only_offered_before_the_store_has_started(self):
+        offered = {
+            SalesTransaction.OrderStatus.PENDING: True,
+            SalesTransaction.OrderStatus.APPROVED: True,
+            SalesTransaction.OrderStatus.PREPARING: False,
+            SalesTransaction.OrderStatus.COMPLETED: False,
+            SalesTransaction.OrderStatus.CANCELLED: False,
+        }
+        for status, expected in offered.items():
+            with self.subTest(status=status):
+                SalesTransaction.objects.filter(pk=self.sale.pk).update(order_status=status)
+                response = self.client.get(
+                    reverse('orders:track_order', args=[self.sale.pk]))
+                if expected:
+                    self.assertContains(response, 'Cancel order')
+                else:
+                    self.assertNotContains(response, 'Cancel order')
+                    self.assertNotContains(response, 'Cancel Order')

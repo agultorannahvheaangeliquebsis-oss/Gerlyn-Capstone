@@ -1,0 +1,15 @@
+{% extends "public_base.html" %}
+{% block title %}{{ conf.receipt_number }} — GERLYN{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section" style="max-width:760px;">
+  <p class="mb-4 no-print"><a class="back-link" href="{% url 'orders:track_order' transaction.pk %}">{{ transaction.order_number }}</a></p>
+
+  <div class="row wrap mb-4 no-print">
+    <a class="btn btn-primary" href="{% url 'orders:receipt_pdf' transaction.pk %}">Download PDF</a>
+    <button type="button" class="btn btn-outline" onclick="window.print()">Print</button>
+  </div>
+
+  {% include "partials/_delivery_receipt_body.html" %}
+</div>
+{% endblock %}

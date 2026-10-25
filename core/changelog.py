@@ -12,6 +12,17 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.38.0',
+        'date': '2026-10-25',
+        'changes': [
+            'Track Order has a "Confirm I received my order" button once your order is out for delivery or ready for pickup',
+            'Once the store records the hand-over you can view your receipt and download it as a PDF',
+            {'text': 'Order Detail has a Confirm Delivery / Confirm Receipt form for orders being delivered or picked up: who received it, when, an optional photo and signature. It completes the order once payment is verified and issues a receipt number', 'internal': True},
+            {'text': 'An online order can now only be completed by confirming its delivery or pickup, so every completed online order has proof of hand-over. Orders completed earlier can still have it recorded afterwards from the same button', 'internal': True},
+            {'text': 'The Order Console has a Confirmation column and filter (not confirmed, staff confirmed, customer confirmed, fully confirmed)', 'internal': True},
+        ],
+    },
+    {
         'version': '1.37.1',
         'date': '2026-10-21',
         'changes': [

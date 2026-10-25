@@ -141,6 +141,14 @@ REGISTRY = {
     'procurement.DeliveryReceiptItem': AuditConfig(
         'Delivery receipt item', branch_path='receipt.procurement.branch_id',
     ),
+    # received_by_name is whoever took the parcel (a customer or their
+    # representative) and notes are free text; both are masked. The photo and
+    # signature are file fields, which are always masked.
+    'sales.OrderReceiptConfirmation': AuditConfig(
+        'Receipt confirmation', repr_field='receipt_number',
+        mask=_f('received_by_name', 'notes'),
+        branch_path='transaction.branch_id',
+    ),
     'sales.Refund': AuditConfig('Refund', branch_path='transaction.branch_id'),
     'sales.RefundItem': AuditConfig(
         'Refund item', branch_path='refund.transaction.branch_id',

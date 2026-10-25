@@ -92,6 +92,48 @@
   </div>
 
   {% comment %}
+  Delivery / pickup confirmation. The order lifecycle has no separate "out for
+  delivery" / "ready for pickup" status — both are the Preparing stage — so the
+  Confirm button is offered from Preparing, and again once the store has
+  recorded the hand-over if the customer has not confirmed yet
+  (sales.receipts.customer_block_reason decides; record_customer_confirmation
+  re-checks it on POST). The receipt links appear once the store has recorded
+  the hand-over, which is when its number is issued.
+  {% endcomment %}
+  {% if receipt.can_confirm or receipt.conf %}
+  <div class="card card-pad mt-4">
+    <h3 class="mb-4">{% if sale.fulfillment_type == 'Delivery' %}Delivery{% else %}Pickup{% endif %} confirmation</h3>
+    {% if receipt.conf.staff_confirmed_at %}
+    <p class="gv-meta mb-2">{{ sale.branch.branch_name }} recorded this order as received on {{ receipt.conf.received_at|date:"F d, Y — g:i A" }}.</p>
+    {% endif %}
+    {% if receipt.conf.customer_confirmed_at %}
+    <p class="gv-meta mb-2">You confirmed receiving it on {{ receipt.conf.customer_confirmed_at|date:"F d, Y — g:i A" }}.</p>
+    {% endif %}
+    {% if receipt.can_confirm %}
+    <p class="gv-meta mb-4">
+      {% if sale.order_status == 'Preparing' %}Your order is {{ receipt.hand_over_label|lower }}. Once you have it in hand, let us know.
+      {% else %}Once you have your order, please confirm it here.{% endif %}
+    </p>
+    <form method="POST" action="{% url 'orders:confirm_received' sale.pk %}"
+          data-confirm="Only confirm if {{ sale.order_number }} is already with you. You can't undo this."
+          data-confirm-title="Confirm you received this order?"
+          data-confirm-variant="warn"
+          data-confirm-ok="Yes, I received it"
+          data-confirm-dismiss="Not yet">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary">Confirm I received my order</button>
+    </form>
+    {% endif %}
+    {% if receipt.has_receipt %}
+    <div class="row mt-4">
+      <a class="btn" href="{% url 'orders:receipt' sale.pk %}">View Receipt</a>
+      <a class="btn" href="{% url 'orders:receipt_pdf' sale.pk %}">Download PDF</a>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% comment %}
   S-10 — the page named the branch but gave no way to actually reach it if
   something about the order needs sorting out.
 

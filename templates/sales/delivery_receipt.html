@@ -1,0 +1,19 @@
+{% extends "internal_base.html" %}
+{% block title %}{{ conf.receipt_number }} — Delivery Receipt{% endblock %}
+{% block page_subtitle %}Sales &amp; Orders{% endblock %}
+{% block branch_scope %}{{ transaction.branch.branch_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head no-print">
+  <div>
+    <a class="back-link" href="{% url 'transaction_detail' transaction.pk %}">{{ transaction.order_number }}</a>
+    <h1 class="mt-2">{{ conf.receipt_number }}</h1>
+  </div>
+  <div class="row wrap">
+    <a class="btn btn-primary" href="{% url 'transaction_delivery_receipt_pdf' transaction.pk %}">Download PDF</a>
+    <button type="button" class="btn btn-outline" onclick="window.print()">Print</button>
+  </div>
+</div>
+
+{% include "partials/_delivery_receipt_body.html" %}
+{% endblock %}

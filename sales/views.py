@@ -35,9 +35,10 @@ from inventory.alerts import stock_status
 from inventory.models import Batch, Inventory, Product, StockMovement
 from audit import context as audit_context
 
+from . import receipts as receipt_service
 from . import refunds as refund_service
 from .models import (
-    OrderStatusChange, OrderStatusHistory, Refund, RefundItem, SalesItem,
+    OrderReceiptConfirmation, OrderStatusChange, OrderStatusHistory, Refund, RefundItem, SalesItem,
     SalesItemBatchConsumption, SalesTransaction,
     PosSalesImport,
 )
@@ -272,7 +273,10 @@ def _transaction_list_context(request):
         # prefetch_related, which is the one-to-many/many-to-many technique
         # and issues a second query for it that a plain select_related join
         # would have folded into the first.
-        .select_related('branch', 'staff', 'recorded_by', 'customer', 'billing_record')
+        .select_related(
+            'branch', 'staff', 'recorded_by', 'customer', 'billing_record',
+            'receipt_confirmation',
+        )
         .order_by('-transaction_date')
     )
     # Server-side branch scoping (never trust a UI dropdown alone).
@@ -287,6 +291,10 @@ def _transaction_list_context(request):
     payment_filter = request.GET.get('payment', '')
     if payment_filter not in SalesTransaction.ModeOfPayment.values:
         payment_filter = ''
+    # Confirmation column (hand-over receipt); same fallback to "all".
+    receipt_filter = request.GET.get('receipt', '')
+    if receipt_filter not in OrderReceiptConfirmation.Status.values:
+        receipt_filter = ''
     # A branch id is a number; anything else (a hand-edited URL) would raise
     # ValueError inside the ORM instead of just matching nothing.
     if branch_filter and not branch_filter.isdigit():
@@ -308,6 +316,8 @@ def _transaction_list_context(request):
         transactions = transactions.filter(fulfillment_type=fulfillment_filter)
     if payment_filter:
         transactions = transactions.filter(mode_of_payment=payment_filter)
+    if receipt_filter:
+        transactions = receipt_service.filter_by_receipt_status(transactions, receipt_filter)
 
     # The shared back-office range control (_daterange.html), same as the
     # Dashboard, Reports, the audit log and Billing. transaction_date is a
@@ -358,6 +368,8 @@ def _transaction_list_context(request):
         'fulfillment_filter': fulfillment_filter,
         'payment_filter': payment_filter,
         'payment_choices': SalesTransaction.ModeOfPayment.choices,
+        'receipt_filter': receipt_filter,
+        'receipt_choices': OrderReceiptConfirmation.Status.choices,
         'branches': branches,
         # The topbar branch chip renders this — same pattern as Floor Stock,
         # Warehouse Stock, Product Master List, Stock Adjustments and
@@ -375,6 +387,7 @@ def _transaction_list_context(request):
             ('q', search_query), ('status', status_filter),
             ('channel', channel_filter), ('fulfillment', fulfillment_filter),
             ('payment', payment_filter), ('branch', branch_filter),
+            ('receipt', receipt_filter),
         ],
         # Every active filter except `status` — the status tabs below build
         # their href off this (O-3), so adding a new filter to the toolbar
@@ -386,7 +399,7 @@ def _transaction_list_context(request):
         # sale to be filtered by.
         'filter_qs': _order_filter_querystring(
             search_query, channel_filter, branch_filter, fulfillment_filter,
-            payment_filter,
+            payment_filter, receipt_filter,
         ),
         # Every other active filter, for the topbar branch switcher
         # (partials/_branch_switch.html) to carry along — same idea as
@@ -394,7 +407,7 @@ def _transaction_list_context(request):
         'branch_switch_carry': [
             ('q', search_query), ('status', status_filter),
             ('channel', channel_filter), ('fulfillment', fulfillment_filter),
-            ('payment', payment_filter),
+            ('payment', payment_filter), ('receipt', receipt_filter),
         ],
     }
     return context
@@ -461,10 +474,12 @@ def _over_committed_order_ids(user):
 
 
 def _order_filter_querystring(
-    search_query, channel_filter, branch_filter, fulfillment_filter, payment_filter=''
+    search_query, channel_filter, branch_filter, fulfillment_filter, payment_filter='',
+    receipt_filter='',
 ):
-    """`q`, `channel`, `branch`, `fulfillment` and `payment`, urlencoded, without
-    `status` — the Order Console's status tabs append their own `status=`."""
+    """`q`, `channel`, `branch`, `fulfillment`, `payment` and `receipt`,
+    urlencoded, without `status` — the Order Console's status tabs append their
+    own `status=`."""
     params = QueryDict(mutable=True)
     if search_query:
         params['q'] = search_query
@@ -476,6 +491,8 @@ def _order_filter_querystring(
         params['fulfillment'] = fulfillment_filter
     if payment_filter:
         params['payment'] = payment_filter
+    if receipt_filter:
+        params['receipt'] = receipt_filter
     return params.urlencode()
 
 
@@ -695,7 +712,7 @@ def transaction_detail(request, pk):
         return redirect('accounts:home')
 
     txn = get_object_or_404(
-        SalesTransaction.objects.select_related('branch', 'staff', 'recorded_by', 'customer'), pk=pk
+        SalesTransaction.objects.select_related('branch', 'staff', 'recorded_by', 'customer', 'receipt_confirmation'), pk=pk
     )
     if not user_can_access_branch(request.user, txn.branch_id):
         messages.error(request, 'That order belongs to another branch.')
@@ -761,6 +778,10 @@ def transaction_detail(request, pk):
         'proof_required_methods': sorted(BillingRecord.PROOF_REQUIRED_METHODS),
         'proof_max_mb': settings.PROOF_OF_PAYMENT_MAX_MB,
         'progress': _order_progress(txn),
+        # The delivery / pickup hand-over card: its state, whether to offer the
+        # Confirm button, and the receipt links. record_staff_confirmation
+        # re-checks all of it on POST.
+        'receipt_panel': receipt_service.staff_panel(txn, billing, can_edit_sales),
         # Whether to offer the after-the-fact PWD/Senior discount form.
         # transaction_apply_discount re-checks every one of these conditions
         # itself - this only decides what to draw, and asks the same model
@@ -900,6 +921,16 @@ def _next_actions(txn, user=None):
         # Staff can cancel an unfulfilled order but not void a completed
         # one — don't offer a button transaction_set_status would reject.
         actions = [a for a in actions if a != 'Cancelled']
+    if txn.transaction_type == SalesTransaction.TransactionType.ONLINE:
+        # An online order is completed by recording who received it (Confirm
+        # Delivery / Confirm Receipt — sales.receipts), never by a bare
+        # status change: that would finish the order, deduct its stock and
+        # start its refund window with no proof of hand-over on record. The
+        # receipt confirmation completes it through the same
+        # _apply_status_transition, so the payment gate and the exactly-once
+        # stock deduction are unchanged. A walk-in has no hand-over to record
+        # (it is handed over at the counter), so it keeps the plain step.
+        actions = [a for a in actions if a != SalesTransaction.OrderStatus.COMPLETED]
     return actions
 
 
@@ -1075,6 +1106,213 @@ class _OrderActionError(Exception):
     partially applying a rejected action."""
 
 
+def _apply_status_transition(locked_txn, new_status, actor, reason, *, notify_customer_of_status=True):
+    """Carry out one already-validated order status step on a LOCKED order.
+
+    The single place the effects of a lifecycle step live — the payment gate
+    for Completed, stock deduction / reversal, the history rows, the billing
+    record's cancellation and the notifications — so everything that moves an
+    order (the Order Detail status control, and the hand-over confirmation in
+    sales.receipts) gets exactly the same rules instead of a parallel copy.
+
+    The caller owns the transaction.atomic() block, the select_for_update()
+    on `locked_txn`, and the checks that the step is allowed at all
+    (_next_actions, the reason rules, expected_status). Raises
+    _OrderActionError to roll the caller's block back; returns the lines whose
+    product has since been deleted from the catalog (nothing to restock).
+
+    `notify_customer_of_status=False` is for a caller that sends the customer
+    a more specific notice of its own for the same event (the receipt
+    confirmation does), so one hand-over does not notify them twice. The
+    internal cancellation notice is unaffected.
+    """
+    # An order is only Completed once its payment is verified Paid.
+    # The billing row is read fresh and locked, same as the
+    # cancellation path below — billing_confirm locks it too, so a
+    # payment being rejected in the gap can't slip a completion through.
+    if new_status == SalesTransaction.OrderStatus.COMPLETED:
+        paying = BillingRecord.objects.select_for_update().filter(
+            transaction=locked_txn
+        ).first()
+        if not paying or paying.status != BillingRecord.PaymentStatus.PAID:
+            raise _OrderActionError(
+                f'{locked_txn.order_number} can only be completed once its '
+                f'payment is verified as Paid — record and verify the payment first.'
+            )
+
+    was_completed = locked_txn.order_status == SalesTransaction.OrderStatus.COMPLETED
+    # Lines whose product was hard-deleted from the catalog since the
+    # sale — _reverse_stock skips them (nothing to credit) rather than
+    # crashing; collected here so the person voiding/cancelling is
+    # told, instead of the order just quietly restocking short.
+    skipped_products = []
+
+    if (not was_completed
+            and new_status == SalesTransaction.OrderStatus.CANCELLED
+            and locked_txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL):
+        # A walk-in's stock leaves the shelf when it is rung up, even
+        # while its payment is still pending — so cancelling it before
+        # completion has to put that stock back, unlike an online
+        # order, which hasn't deducted anything until it completes.
+        skipped_products += _reverse_stock(locked_txn, actor)
+
+    if was_completed and new_status == SalesTransaction.OrderStatus.CANCELLED:
+        # Voiding a completed sale — undo what _deduct_stock already
+        # applied. Distinct from cancelling an earlier-stage order,
+        # which never touched stock in the first place. Reversing a
+        # completed sale is a materially bigger action (real stock,
+        # possibly real money, already moved), so it's restricted
+        # below to Owner/Branch Manager even though Staff can cancel
+        # unfulfilled orders.
+        if actor.role not in [OWNER, BRANCH_MANAGER]:
+            raise _OrderActionError(
+                'Only the Owner or a Branch Manager can void a completed sale.'
+            )
+        # P14 — a refunded order cannot also be voided. _reverse_stock
+        # credits back the FULL quantity sold, so voiding after a
+        # Sellable refund would restock those units a second time;
+        # and the money side (refunded_amount, Partially Refunded)
+        # would have nothing coherent to reverse to. Refund whatever
+        # is left instead. Requests still waiting for a decision are
+        # closed here — the goods are being reversed wholesale, so
+        # there is nothing left for anyone to approve.
+        if refund_service.has_approved_refunds(locked_txn):
+            raise _OrderActionError(
+                f'{locked_txn.order_number} has already been refunded, so it cannot '
+                f'be voided — refund the remaining items instead.'
+            )
+        refund_service.reject_pending_refunds(
+            locked_txn, actor, 'Order was voided before this refund was decided.'
+        )
+        skipped_products += _reverse_stock(locked_txn, actor)
+
+    # Deduct stock once, when an online order is completed.
+    if (new_status == SalesTransaction.OrderStatus.COMPLETED
+            and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE):
+        _deduct_stock(locked_txn, actor)
+
+    previous_status = locked_txn.order_status
+    locked_txn.order_status = new_status
+    OrderStatusHistory.objects.create(
+        transaction=locked_txn, from_status=previous_status, to_status=new_status,
+        actor=actor,
+        note=reason if new_status == SalesTransaction.OrderStatus.CANCELLED else '',
+    )
+    if new_status == SalesTransaction.OrderStatus.CANCELLED:
+        locked_txn.cancel_reason = reason
+    if new_status == SalesTransaction.OrderStatus.COMPLETED:
+        # The refund window (SalesTransaction.refund_window_expired)
+        # counts from here, not from when the order was placed.
+        locked_txn.completed_at = timezone.now()
+    locked_txn.save()
+
+    OrderStatusChange.objects.create(
+        transaction=locked_txn, from_status=previous_status,
+        to_status=new_status, reason=reason, changed_by=actor,
+    )
+
+    if (
+        notify_customer_of_status
+        and new_status == SalesTransaction.OrderStatus.COMPLETED
+        and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+        and locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
+    ):
+        from .notifications import notify_order_delivered
+
+        notify_order_delivered(locked_txn, actor)
+
+    # UIUX-001 — the customer-facing counterpart to the internal
+    # notify() call below. Fires for every transition this view can
+    # reach (Approved/Preparing/Completed/Cancelled), not just
+    # Cancelled, since a customer cares about all of them. Reuses
+    # orders.customer_views' own STATUS_BLURB text so this
+    # notification says the same thing Track Order already tells
+    # the customer for the same status (deferred import — mirrors
+    # the notify() import a few lines down, and avoids a
+    # module-load-time import between the sales and orders apps).
+    #
+    # Skipped for the exact Completed+Online+Delivery combination
+    # above: notify_order_delivered already sends that customer a
+    # more specific, delivery-framed notice for this same event.
+    # Do NOT remove this guard to "restore" coverage here — doing so
+    # would double-notify the customer for one transition instead of
+    # closing a gap.
+    if notify_customer_of_status and not (
+        new_status == SalesTransaction.OrderStatus.COMPLETED
+        and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+        and locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
+    ):
+        from orders.customer_views import STATUS_BLURB
+
+        from core.notifications import notify_customer
+
+        notify_customer(
+            locked_txn.customer,
+            f'Order {locked_txn.order_number}: {new_status}',
+            STATUS_BLURB.get(new_status, f'Your order is now {new_status}.'),
+            action_url=reverse(
+                'orders:track_order', kwargs={'transaction_id': locked_txn.pk}
+            ),
+            action_label='Track Order',
+        )
+
+    if new_status == SalesTransaction.OrderStatus.CANCELLED:
+        # Keep billing in step — this is the one field
+        # transaction_set_status doesn't already own, so it used to
+        # sit at Pending indefinitely after a cancellation. A voided
+        # completed sale had real money involved (Paid or Pending);
+        # any actual refund happens outside the system (no payment
+        # gateway integration — see billing.PaymentMethod.COD) and
+        # this only reflects that in the record.
+        #
+        # F-10: record the void on its own voided_by / date_voided
+        # pair. Do NOT touch confirmed_by / date_confirmed — writing
+        # the voider into confirmed_by while date_confirmed kept the
+        # original timestamp made the record read "confirmed by
+        # [voider] on [original date]", a pairing that never happened,
+        # and erased the real confirmer.
+        # A fresh, LOCKED fetch — not the possibly-stale
+        # locked_txn.billing_record relation. billing_confirm takes
+        # out its own select_for_update on this same row (D-1), so
+        # locking it here too is what actually serialises the two
+        # against each other: without it, a payment confirmed in the
+        # gap between this order-status check and this save() was
+        # silently overwritten back to Cancelled, or the reverse —
+        # either way the order and its bill could disagree about
+        # whether there is still money to collect.
+        billing = BillingRecord.objects.select_for_update().filter(
+            transaction=locked_txn
+        ).first()
+        # B-1 — route through the same transition map billing_confirm
+        # and its API twin enforce, instead of writing the status
+        # straight onto the field. ALLOWED_STATUS_TRANSITIONS now
+        # names CANCELLED as reachable from every state precisely so
+        # this call is not bypassing the rule the map documents —
+        # this is the one caller allowed to actually take that route.
+        if billing and billing.can_transition_to(BillingRecord.PaymentStatus.CANCELLED):
+            billing.status = BillingRecord.PaymentStatus.CANCELLED
+            billing.voided_by = actor
+            billing.date_voided = timezone.now()
+            billing.save()
+
+        from core.module_permissions import SALES_POS
+        from core.notifications import CATEGORY_SALES, PRIORITY_MEDIUM, notify
+
+        notify(
+            CATEGORY_SALES, PRIORITY_MEDIUM,
+            f'Order {locked_txn.order_number} cancelled',
+            f'{locked_txn.order_number} ({locked_txn.branch.branch_name}, '
+            f'₱{locked_txn.total_amount}) was cancelled by '
+            f'{actor.username}.',
+            branch=locked_txn.branch,
+            action_url=reverse('transaction_detail', kwargs={'pk': locked_txn.pk}),
+            action_label='View Order',
+            required_module=SALES_POS,
+        )
+
+    return skipped_products
+
+
 def transaction_set_status(request, pk, new_status):
     """Advance an order through its lifecycle.
 
@@ -1137,6 +1375,18 @@ def transaction_set_status(request, pk, new_status):
                     f'Check the order and try again.'
                 )
 
+            # Said plainly rather than as a generic "cannot move": this is the
+            # one step an online order has that moved to its own form.
+            if (new_status == SalesTransaction.OrderStatus.COMPLETED
+                    and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
+                    and locked_txn.order_status != SalesTransaction.OrderStatus.COMPLETED):
+                raise _OrderActionError(
+                    f'Cannot move {locked_txn.order_number} from {locked_txn.order_status} '
+                    f'to Completed: an online order is completed by recording its '
+                    f'{"delivery" if locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY else "pickup"} '
+                    f'— use {receipt_service.confirm_action_label(locked_txn)} on the order.'
+                )
+
             # Without the user, _next_actions falls back to its role-blind
             # default set and would let a Staff request through the "void a
             # completed sale" transition here — the check a few lines below
@@ -1173,188 +1423,10 @@ def transaction_set_status(request, pk, new_status):
                     f'(it is {len(reason)}).'
                 )
 
-            # An order is only Completed once its payment is verified Paid.
-            # The billing row is read fresh and locked, same as the
-            # cancellation path below — billing_confirm locks it too, so a
-            # payment being rejected in the gap can't slip a completion through.
-            if new_status == SalesTransaction.OrderStatus.COMPLETED:
-                paying = BillingRecord.objects.select_for_update().filter(
-                    transaction=locked_txn
-                ).first()
-                if not paying or paying.status != BillingRecord.PaymentStatus.PAID:
-                    raise _OrderActionError(
-                        f'{locked_txn.order_number} can only be completed once its '
-                        f'payment is verified as Paid — record and verify the payment first.'
-                    )
-
-            was_completed = locked_txn.order_status == SalesTransaction.OrderStatus.COMPLETED
-            # Lines whose product was hard-deleted from the catalog since the
-            # sale — _reverse_stock skips them (nothing to credit) rather than
-            # crashing; collected here so the person voiding/cancelling is
-            # told, instead of the order just quietly restocking short.
-            skipped_products = []
-
-            if (not was_completed
-                    and new_status == SalesTransaction.OrderStatus.CANCELLED
-                    and locked_txn.transaction_type == SalesTransaction.TransactionType.PHYSICAL):
-                # A walk-in's stock leaves the shelf when it is rung up, even
-                # while its payment is still pending — so cancelling it before
-                # completion has to put that stock back, unlike an online
-                # order, which hasn't deducted anything until it completes.
-                skipped_products += _reverse_stock(locked_txn, request.user)
-
-            if was_completed and new_status == SalesTransaction.OrderStatus.CANCELLED:
-                # Voiding a completed sale — undo what _deduct_stock already
-                # applied. Distinct from cancelling an earlier-stage order,
-                # which never touched stock in the first place. Reversing a
-                # completed sale is a materially bigger action (real stock,
-                # possibly real money, already moved), so it's restricted
-                # below to Owner/Branch Manager even though Staff can cancel
-                # unfulfilled orders.
-                if request.user.role not in [OWNER, BRANCH_MANAGER]:
-                    raise _OrderActionError(
-                        'Only the Owner or a Branch Manager can void a completed sale.'
-                    )
-                # P14 — a refunded order cannot also be voided. _reverse_stock
-                # credits back the FULL quantity sold, so voiding after a
-                # Sellable refund would restock those units a second time;
-                # and the money side (refunded_amount, Partially Refunded)
-                # would have nothing coherent to reverse to. Refund whatever
-                # is left instead. Requests still waiting for a decision are
-                # closed here — the goods are being reversed wholesale, so
-                # there is nothing left for anyone to approve.
-                if refund_service.has_approved_refunds(locked_txn):
-                    raise _OrderActionError(
-                        f'{locked_txn.order_number} has already been refunded, so it cannot '
-                        f'be voided — refund the remaining items instead.'
-                    )
-                refund_service.reject_pending_refunds(
-                    locked_txn, request.user, 'Order was voided before this refund was decided.'
-                )
-                skipped_products += _reverse_stock(locked_txn, request.user)
-
-            # Deduct stock once, when an online order is completed.
-            if (new_status == SalesTransaction.OrderStatus.COMPLETED
-                    and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE):
-                _deduct_stock(locked_txn, request.user)
-
-            previous_status = locked_txn.order_status
-            locked_txn.order_status = new_status
-            OrderStatusHistory.objects.create(
-                transaction=locked_txn, from_status=previous_status, to_status=new_status,
-                actor=request.user,
-                note=reason if new_status == SalesTransaction.OrderStatus.CANCELLED else '',
-            )
-            if new_status == SalesTransaction.OrderStatus.CANCELLED:
-                locked_txn.cancel_reason = reason
-            if new_status == SalesTransaction.OrderStatus.COMPLETED:
-                # The refund window (SalesTransaction.refund_window_expired)
-                # counts from here, not from when the order was placed.
-                locked_txn.completed_at = timezone.now()
-            locked_txn.save()
-
-            OrderStatusChange.objects.create(
-                transaction=locked_txn, from_status=previous_status,
-                to_status=new_status, reason=reason, changed_by=request.user,
+            skipped_products = _apply_status_transition(
+                locked_txn, new_status, request.user, reason,
             )
 
-            if (
-                new_status == SalesTransaction.OrderStatus.COMPLETED
-                and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
-                and locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
-            ):
-                from .notifications import notify_order_delivered
-
-                notify_order_delivered(locked_txn, request.user)
-
-            # UIUX-001 — the customer-facing counterpart to the internal
-            # notify() call below. Fires for every transition this view can
-            # reach (Approved/Preparing/Completed/Cancelled), not just
-            # Cancelled, since a customer cares about all of them. Reuses
-            # orders.customer_views' own STATUS_BLURB text so this
-            # notification says the same thing Track Order already tells
-            # the customer for the same status (deferred import — mirrors
-            # the notify() import a few lines down, and avoids a
-            # module-load-time import between the sales and orders apps).
-            #
-            # Skipped for the exact Completed+Online+Delivery combination
-            # above: notify_order_delivered already sends that customer a
-            # more specific, delivery-framed notice for this same event.
-            # Do NOT remove this guard to "restore" coverage here — doing so
-            # would double-notify the customer for one transition instead of
-            # closing a gap.
-            if not (
-                new_status == SalesTransaction.OrderStatus.COMPLETED
-                and locked_txn.transaction_type == SalesTransaction.TransactionType.ONLINE
-                and locked_txn.fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY
-            ):
-                from orders.customer_views import STATUS_BLURB
-
-                from core.notifications import notify_customer
-
-                notify_customer(
-                    locked_txn.customer,
-                    f'Order {locked_txn.order_number}: {new_status}',
-                    STATUS_BLURB.get(new_status, f'Your order is now {new_status}.'),
-                    action_url=reverse(
-                        'orders:track_order', kwargs={'transaction_id': locked_txn.pk}
-                    ),
-                    action_label='Track Order',
-                )
-
-            if new_status == SalesTransaction.OrderStatus.CANCELLED:
-                # Keep billing in step — this is the one field
-                # transaction_set_status doesn't already own, so it used to
-                # sit at Pending indefinitely after a cancellation. A voided
-                # completed sale had real money involved (Paid or Pending);
-                # any actual refund happens outside the system (no payment
-                # gateway integration — see billing.PaymentMethod.COD) and
-                # this only reflects that in the record.
-                #
-                # F-10: record the void on its own voided_by / date_voided
-                # pair. Do NOT touch confirmed_by / date_confirmed — writing
-                # the voider into confirmed_by while date_confirmed kept the
-                # original timestamp made the record read "confirmed by
-                # [voider] on [original date]", a pairing that never happened,
-                # and erased the real confirmer.
-                # A fresh, LOCKED fetch — not the possibly-stale
-                # locked_txn.billing_record relation. billing_confirm takes
-                # out its own select_for_update on this same row (D-1), so
-                # locking it here too is what actually serialises the two
-                # against each other: without it, a payment confirmed in the
-                # gap between this order-status check and this save() was
-                # silently overwritten back to Cancelled, or the reverse —
-                # either way the order and its bill could disagree about
-                # whether there is still money to collect.
-                billing = BillingRecord.objects.select_for_update().filter(
-                    transaction=locked_txn
-                ).first()
-                # B-1 — route through the same transition map billing_confirm
-                # and its API twin enforce, instead of writing the status
-                # straight onto the field. ALLOWED_STATUS_TRANSITIONS now
-                # names CANCELLED as reachable from every state precisely so
-                # this call is not bypassing the rule the map documents —
-                # this is the one caller allowed to actually take that route.
-                if billing and billing.can_transition_to(BillingRecord.PaymentStatus.CANCELLED):
-                    billing.status = BillingRecord.PaymentStatus.CANCELLED
-                    billing.voided_by = request.user
-                    billing.date_voided = timezone.now()
-                    billing.save()
-
-                from core.module_permissions import SALES_POS
-                from core.notifications import CATEGORY_SALES, PRIORITY_MEDIUM, notify
-
-                notify(
-                    CATEGORY_SALES, PRIORITY_MEDIUM,
-                    f'Order {locked_txn.order_number} cancelled',
-                    f'{locked_txn.order_number} ({locked_txn.branch.branch_name}, '
-                    f'₱{locked_txn.total_amount}) was cancelled by '
-                    f'{request.user.username}.',
-                    branch=locked_txn.branch,
-                    action_url=reverse('transaction_detail', kwargs={'pk': locked_txn.pk}),
-                    action_label='View Order',
-                    required_module=SALES_POS,
-                )
     except _OrderActionError as e:
         messages.error(request, str(e))
         if is_self_cancel:

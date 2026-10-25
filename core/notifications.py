@@ -62,6 +62,7 @@ EVENT_PO_OVERDUE_ESCALATED = 'po_overdue_escalated'
 EVENT_SUPPLIER_RETURN_FOR_SUPPLIER = 'supplier_return_for_supplier'
 EVENT_SUPPLIER_RETURN_RESPONSE = 'supplier_return_response'
 EVENT_ORDER_DELIVERED = 'order_delivered'
+EVENT_ORDER_RECEIPT_CONFIRMED = 'order_receipt_confirmed'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
 EVENT_EXPIRY_WRITE_OFF = 'expiry_write_off'
@@ -203,6 +204,18 @@ EVENT_MATRIX = {
         'priority': PRIORITY_LOW,
         'required_module': None,
         'exclude_actor': True,
+    },
+    EVENT_ORDER_RECEIPT_CONFIRMED: {
+        'when': "Staff record an online order's hand-over, or the customer "
+                'confirms they received it.',
+        'recipients': 'The customer who placed the order.',
+        'audiences': ('customer',),
+        'category': CATEGORY_SALES,
+        'priority': PRIORITY_LOW,
+        'required_module': None,
+        # The customer's own tap is also recorded here, so their confirmation
+        # shows in their inbox; nothing is suppressed for the actor.
+        'exclude_actor': False,
     },
     EVENT_PAYMENT_VERIFIED: {
         'when': 'A payment moves from Pending to Paid.',

@@ -156,6 +156,8 @@ order_status, remaining_after_refunds.
       A verified payment is final — it cannot be re-opened or edited.
       {% if order_can_complete %}
       The order can now be marked Completed, on the order itself.
+      {% elif order_can_confirm_receipt %}
+      The delivery or pickup can now be confirmed, on the order itself.
       {% elif order_status != "Completed" and order_status != "Cancelled" %}
       Any further steps for the order are taken on the order itself.
       {% endif %}

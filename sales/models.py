@@ -7,11 +7,18 @@
 
 from datetime import timedelta
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.utils import timezone
+from billing.storage import PaymentProofStorage
 from branches.models import Branch
 from inventory.models import Product
 from accounts.models import User
+
+# Hand-over evidence (a photo of the order, a drawn signature) is as private as
+# a payment proof, so it reuses that same non-public FileSystemStorage: nothing
+# under it is reachable from the /media/ route, only through the receipt views.
+receipt_evidence_storage = PaymentProofStorage()
 
 
 class OrderNumberSequence(models.Model):
@@ -370,6 +377,18 @@ class SalesTransaction(models.Model):
     @property
     def has_pending_pwd_request(self):
         return self.pwd_request_status == self.PwdRequestStatus.PENDING
+
+    @property
+    def receipt_status(self):
+        """Hand-over confirmation state: an OrderReceiptConfirmation.Status.
+
+        Reads the one-to-one if it exists, so a list that select_related's
+        'receipt_confirmation' answers without a query per row.
+        """
+        try:
+            return self.receipt_confirmation.status
+        except ObjectDoesNotExist:
+            return OrderReceiptConfirmation.Status.NONE
 
     def save(self, *args, **kwargs):
         # Existing row, or a caller that set order_number explicitly: nothing
@@ -789,3 +808,141 @@ class OrderStatusChange(models.Model):
 
     class Meta:
         ordering = ['changed_at', 'pk']
+
+
+class ReceiptNumberSequence(models.Model):
+    """Per-calendar-day counter behind OrderReceiptConfirmation.receipt_number.
+
+    ``GP-RCPT-{YYYYMMDD}-{NNNNN}``, NNNNN restarting at 00001 each day, so a
+    gap in a day's run means a receipt is missing rather than being an
+    artefact of a global counter. Same mechanism as OrderNumberSequence: the
+    row is bumped under ``select_for_update`` inside the same transaction that
+    writes the confirmation, so two concurrent hand-overs cannot be given the
+    same number, and a rolled-back confirmation gives its number back.
+    """
+    day = models.DateField(primary_key=True)
+    last_value = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.day}: {self.last_value}"
+
+
+class OrderReceiptConfirmation(models.Model):
+    """Proof that an online order reached the customer, and who vouches for it.
+
+    One row per order, created by whichever side confirms first and completed
+    by the other (``sales.receipts`` is the only writer):
+
+      * the STAFF side — the person who handed the order over records who
+        received it, when, and optionally a photo and a drawn signature. This
+        is also what issues the receipt number and moves the order to
+        Completed (payment rules permitting);
+      * the CUSTOMER side — the customer taps "Confirm I received my order"
+        on their Track Order page. Their confirmation can come before the
+        staff one (they have the parcel in hand) or after it.
+
+    Each side can confirm exactly once. The order is "fully confirmed" once
+    both have — derived from the two timestamps rather than stored, so it
+    cannot drift from them.
+
+    The photo and signature are evidence of a hand-over (a doorstep, a
+    customer's handwriting), so like payment proofs they live on private
+    storage and are served only through authorization-checked views.
+    """
+    class Status(models.TextChoices):
+        # Values double as the ?receipt= filter on the Order Console.
+        NONE = 'none', 'Not confirmed'
+        STAFF = 'staff', 'Staff confirmed'
+        CUSTOMER = 'customer', 'Customer confirmed'
+        FULL = 'full', 'Fully confirmed'
+
+    transaction = models.OneToOneField(
+        SalesTransaction, on_delete=models.CASCADE,
+        related_name='receipt_confirmation',
+    )
+    # Issued when the staff side is recorded (not when a customer-first
+    # confirmation creates the row), so every number printed on a receipt
+    # belongs to an actual hand-over. NULLs do not collide under UNIQUE.
+    receipt_number = models.CharField(
+        max_length=24, unique=True, null=True, blank=True,
+        help_text="GP-RCPT-YYYYMMDD-NNNNN, issued when staff record the hand-over.",
+    )
+
+    # --- staff side ---------------------------------------------------------
+    received_by_name = models.CharField(
+        max_length=150, blank=True,
+        help_text="Who physically took the order — the customer or someone "
+                  "collecting for them.",
+    )
+    received_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the order changed hands, as recorded by staff.",
+    )
+    confirmed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        limit_choices_to={'role__in': ['OWNER', 'BRANCH_MANAGER', 'STAFF']},
+        related_name='receipt_confirmations',
+        help_text="The Owner, Branch Manager or Staff member who recorded the hand-over.",
+    )
+    # When the form was actually submitted. received_at can be backdated by a
+    # few hours (a delivery logged after the rider got back); this cannot.
+    # It, not confirmed_by, marks the staff side as done: confirmed_by goes
+    # NULL if the account is removed, and that must not "un-confirm" an order.
+    staff_confirmed_at = models.DateTimeField(null=True, blank=True)
+    proof_photo = models.ImageField(
+        upload_to='receipt_evidence/photos/', storage=receipt_evidence_storage,
+        blank=True,
+        help_text="Optional photo of the order at hand-over.",
+    )
+    signature = models.ImageField(
+        upload_to='receipt_evidence/signatures/', storage=receipt_evidence_storage,
+        blank=True,
+        help_text="Optional signature drawn on the confirmation form.",
+    )
+    notes = models.CharField(max_length=500, blank=True)
+
+    # --- customer side ------------------------------------------------------
+    customer_confirmed_at = models.DateTimeField(null=True, blank=True)
+    customer_confirmed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='customer_receipt_confirmations',
+        help_text="The customer account that tapped Confirm.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Order receipt confirmation"
+        verbose_name_plural = "Order receipt confirmations"
+
+    @property
+    def staff_confirmed(self):
+        return self.staff_confirmed_at is not None
+
+    @property
+    def customer_confirmed(self):
+        return self.customer_confirmed_at is not None
+
+    @property
+    def is_fully_confirmed(self):
+        return self.staff_confirmed and self.customer_confirmed
+
+    @property
+    def fully_confirmed_at(self):
+        """When the second of the two confirmations landed."""
+        if not self.is_fully_confirmed:
+            return None
+        return max(self.staff_confirmed_at, self.customer_confirmed_at)
+
+    @property
+    def status(self):
+        if self.is_fully_confirmed:
+            return self.Status.FULL
+        if self.staff_confirmed:
+            return self.Status.STAFF
+        if self.customer_confirmed:
+            return self.Status.CUSTOMER
+        return self.Status.NONE
+
+    def __str__(self):
+        return f"{self.receipt_number or 'Unnumbered'} - {self.transaction.order_number}"

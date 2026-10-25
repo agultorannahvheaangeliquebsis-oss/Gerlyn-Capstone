@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{ conf.receipt_number }}</title>
+<style>
+  {% comment %}
+  Rendered by xhtml2pdf (reportlab under the hood), not a browser, so it gets
+  the same treatment as procurement/po_pdf.html: a CSS2.1-ish subset, layout
+  done with tables, no flexbox / grid / custom properties, "PHP" instead of the
+  peso sign (the built-in PDF fonts have no glyph for it). The on-screen
+  version is partials/_delivery_receipt_body.html; both are fed by
+  sales.receipts.receipt_context.
+
+  Evidence images arrive as data URIs (signature_src / photo_src) because the
+  files sit on private storage that xhtml2pdf cannot fetch by URL. When one is
+  missing or unreadable the receipt says it is on file instead.
+  {% endcomment %}
+  @page {
+    size: A4;
+    margin: 16mm 16mm 16mm 16mm;
+    @frame footer_frame {
+      -pdf-frame-content: footer_content;
+      bottom: 8mm; left: 16mm; right: 16mm; height: 10mm;
+    }
+  }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #111111; }
+  table { border-collapse: collapse; width: 100%; }
+  .store-name { font-size: 15pt; font-weight: bold; }
+  .store-sub { font-size: 8.5pt; color: #555555; }
+  .doc-title { font-size: 16pt; font-weight: bold; text-align: right; letter-spacing: 1px; }
+  .doc-meta { font-size: 9pt; text-align: right; color: #333333; line-height: 1.5; }
+  .letterhead td { border-bottom: 2px solid #111111; padding-bottom: 10px; vertical-align: top; }
+
+  .void-banner {
+    border: 1px dashed #aa0000; color: #aa0000; font-size: 9pt;
+    font-weight: bold; padding: 6px 9px; margin: 10px 0;
+  }
+  .facts { margin: 14px 0 10px; }
+  .facts td { padding: 3px 0; vertical-align: top; font-size: 9.5pt; }
+  .facts .k { width: 32%; color: #555555; }
+  .facts .v { font-weight: bold; }
+
+  .items th {
+    text-align: left; font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase;
+    padding: 6px 7px; border-bottom: 2px solid #111111; border-top: 1px solid #111111;
+    background-color: #f2f2f2;
+  }
+  .items td {
+    padding: 6px 7px; border-bottom: 1px solid #dddddd; font-size: 9pt;
+    -pdf-keep-in-frame-mode: shrink;
+  }
+  .items .num { text-align: right; }
+  .items .basis { font-size: 7.5pt; color: #666666; }
+  .totals td { padding: 3px 7px; font-size: 9.5pt; text-align: right; }
+  .totals .grand td { border-top: 2px solid #111111; padding-top: 7px; font-size: 11pt; font-weight: bold; }
+
+  .section-label {
+    margin-top: 16px; font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase;
+    color: #555555; font-weight: bold; border-bottom: 1px solid #bbbbbb; padding-bottom: 3px;
+  }
+  .evidence td { vertical-align: top; padding: 8px 14px 0 0; width: 50%; }
+  .evidence .caption { font-size: 7.5pt; color: #666666; margin-top: 3px; }
+  .note { font-size: 9pt; }
+
+  #footer_content { font-size: 7.5pt; color: #777777; border-top: 1px solid #dddddd; padding-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="footer_content">
+  {{ conf.receipt_number }} &mdash; proof of {% if is_delivery %}delivery{% else %}pickup{% endif %} for {{ transaction.order_number }}.
+  Payments are recorded by the store; no funds are processed through this system.
+</div>
+
+<table class="letterhead">
+  <tr>
+    <td style="width:55%;">
+      <div class="store-name">{% if store.receipt_letterhead %}{{ store.receipt_letterhead|linebreaksbr }}{% else %}GERLYN{% endif %}</div>
+      <div class="store-sub">{{ transaction.branch.branch_name }}</div>
+      {% if transaction.branch.location %}<div class="store-sub">{{ transaction.branch.location }}</div>{% endif %}
+      {% if store.tin %}<div class="store-sub">TIN {{ store.tin }}</div>{% endif %}
+    </td>
+    <td style="width:45%;">
+      <div class="doc-title">{% if is_delivery %}DELIVERY RECEIPT{% else %}PICKUP RECEIPT{% endif %}</div>
+      <div class="doc-meta">
+        <strong>{{ conf.receipt_number }}</strong><br/>
+        Order {{ transaction.order_number }}
+      </div>
+    </td>
+  </tr>
+</table>
+
+{% if voided %}
+<div class="void-banner">This sale was later cancelled (voided). This receipt records the hand-over only &mdash; it is not a valid proof of purchase.</div>
+{% endif %}
+
+<table class="facts">
+  <tr><td class="k">Customer</td><td class="v">{{ customer_name|default:"-" }}</td></tr>
+  <tr><td class="k">Order placed</td><td class="v">{{ transaction.transaction_date|date:"j M Y, g:i a" }}</td></tr>
+  {% if is_delivery %}
+  <tr><td class="k">Delivered to</td><td class="v">{{ transaction.delivery_address|default:"-" }}</td></tr>
+  {% else %}
+  <tr><td class="k">Picked up at</td><td class="v">{{ transaction.branch.branch_name }}</td></tr>
+  {% endif %}
+  <tr><td class="k">Received by</td><td class="v">{{ conf.received_by_name }}</td></tr>
+  <tr><td class="k">Date and time received</td><td class="v">{{ conf.received_at|date:"j M Y, g:i a" }}</td></tr>
+  <tr><td class="k">Handed over by (staff)</td><td class="v">{{ staff_name|default:"-" }}</td></tr>
+  <tr><td class="k">Branch</td><td class="v">{{ transaction.branch.branch_name }}</td></tr>
+  <tr><td class="k">Payment method</td><td class="v">{{ payment_method }}</td></tr>
+  <tr><td class="k">Payment status</td><td class="v">{{ payment_status|default:"-" }}</td></tr>
+</table>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:44%;">Item</th>
+      <th class="num" style="width:10%;">Qty</th>
+      <th style="width:16%;">Price applied</th>
+      <th class="num" style="width:15%;">Unit price</th>
+      <th class="num" style="width:15%;">Subtotal</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td>{{ item.product.product_name|default:"(removed product)" }}</td>
+      <td class="num">{{ item.quantity_sold }}</td>
+      <td>{% if item.price_basis %}{{ item.price_basis }}{% else %}-{% endif %}</td>
+      <td class="num">PHP {{ item.unit_price|floatformat:2 }}</td>
+      <td class="num">PHP {{ item.subtotal|floatformat:2 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<table class="totals">
+  {% if discount_amount %}
+  <tr><td>Subtotal</td><td style="width:24%;">PHP {{ gross_subtotal|floatformat:2 }}</td></tr>
+  <tr><td>Less: {{ transaction.get_discount_type_display }} discount</td><td>- PHP {{ discount_amount|floatformat:2 }}</td></tr>
+  {% endif %}
+  <tr class="grand"><td>Total</td><td style="width:24%;">PHP {{ transaction.total_amount|floatformat:2 }}</td></tr>
+</table>
+
+<div class="section-label">Confirmation</div>
+<table class="facts">
+  <tr><td class="k">Store</td><td class="v">Confirmed {{ conf.staff_confirmed_at|date:"j M Y, g:i a" }}</td></tr>
+  <tr><td class="k">Customer</td><td class="v">{% if conf.customer_confirmed_at %}Confirmed {{ conf.customer_confirmed_at|date:"j M Y, g:i a" }}{% else %}Not yet confirmed{% endif %}</td></tr>
+  <tr><td class="k">Status</td><td class="v">{{ conf.status.label }}</td></tr>
+</table>
+
+{% if conf.notes %}
+<div class="section-label">Notes</div>
+<p class="note">{{ conf.notes }}</p>
+{% endif %}
+
+<div class="section-label">Proof of receipt</div>
+<table class="evidence">
+  <tr>
+    <td>
+      {% if signature_src %}
+        <img src="{{ signature_src }}" style="width:200px;"/>
+        <div class="caption">Signature of {{ conf.received_by_name }}</div>
+      {% elif conf.signature %}
+        <div class="note">Signature on file.</div>
+      {% else %}
+        <div class="note">No signature was recorded.</div>
+      {% endif %}
+    </td>
+    <td>
+      {% if photo_src %}
+        <img src="{{ photo_src }}" style="width:200px;"/>
+        <div class="caption">Photo taken at hand-over</div>
+      {% elif conf.proof_photo %}
+        <div class="note">Hand-over photo on file.</div>
+      {% else %}
+        <div class="note">No photo was recorded.</div>
+      {% endif %}
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

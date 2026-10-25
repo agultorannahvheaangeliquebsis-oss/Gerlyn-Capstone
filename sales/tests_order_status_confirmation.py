@@ -18,7 +18,10 @@ from accounts.models import BranchManagerProfile, StaffProfile, User
 from billing.models import BillingRecord
 from branches.models import Branch
 from inventory.models import Inventory, Product
-from sales.models import OrderStatusChange, SalesItem, SalesTransaction
+from sales.models import (
+    OrderReceiptConfirmation, OrderStatusChange, ReceiptNumberSequence, SalesItem,
+    SalesTransaction,
+)
 from sales.views import STATUS_REASON_MAX_LENGTH
 
 Status = SalesTransaction.OrderStatus
@@ -68,6 +71,16 @@ class _OrderStatusBase(TestCase):
             reverse('transaction_set_status', args=[txn.pk, target]), data or {}
         )
 
+    def _handover(self, txn, notes=''):
+        """Complete an ONLINE order the way it is completed now: by recording
+        who received it (sales.receipts). The status endpoint no longer
+        offers Completed for an online order."""
+        return self.client.post(
+            reverse('transaction_confirm_receipt', args=[txn.pk]),
+            {'received_by_name': 'Juana Cruz', 'received_at': '', 'notes': notes,
+             'signature_data': ''},
+        )
+
     def _messages(self, response):
         return [m.message for m in response.wsgi_request._messages]
 
@@ -96,14 +109,25 @@ class ConfirmationDialogRenderingTests(_OrderStatusBase):
         self.assertIn('name="expected_status" value="Pending"', html)
 
     def test_completed_dialog_has_an_optional_reason_and_stock_notice(self):
-        txn = self._order(Status.PREPARING, online=True, paid=True)
+        # A walk-in settled away from the counter: its plain Completed step
+        # is the one that still stops for this dialog.
+        txn = self._order(Status.PENDING, online=False, paid=True)
         html = self._page(txn).content.decode()
 
         self.assertIn('Mark this order as Completed?', html)
-        self.assertIn('Stock for this order is deducted from Tarcan.', html)
+        self.assertIn('Stock was already deducted when this walk-in sale was rung up', html)
         self.assertIn('refund window', html)
         completed_dialog = html.split('Mark this order as Completed?')[1]
         self.assertNotIn('data-reason-required', completed_dialog.split('data-status-ok')[0])
+
+    def test_an_online_order_has_no_completed_dialog_because_its_confirm_form_does_that(self):
+        txn = self._order(Status.PREPARING, online=True, paid=True)
+        page = self._page(txn)
+        html = page.content.decode()
+
+        self.assertEqual(page.context['next_actions'], ['Cancelled'])
+        self.assertNotIn('Mark this order as Completed?', html)
+        self.assertIn(reverse('transaction_confirm_receipt', args=[txn.pk]), html)
 
     def test_void_of_a_completed_sale_says_so(self):
         txn = self._order(Status.COMPLETED, online=True, paid=True)
@@ -166,18 +190,37 @@ class StatusTransitionServerValidationTests(_OrderStatusBase):
         self._assert_untouched(txn, Status.PENDING)
 
     def test_overlong_reason_is_refused_and_nothing_moves(self):
-        txn = self._order(Status.PREPARING, online=True, paid=True)
+        txn = self._order(Status.PENDING, online=False, paid=True)
         response = self._post(txn, 'Completed', {'reason': 'x' * (STATUS_REASON_MAX_LENGTH + 1)})
         self.assertTrue(any('characters' in m for m in self._messages(response)))
-        self._assert_untouched(txn, Status.PREPARING)
+        self._assert_untouched(txn, Status.PENDING)
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity_on_hand, 50)
 
     def test_completing_is_still_gated_on_paid_payment(self):
-        txn = self._order(Status.PREPARING, online=True, paid=False)
+        txn = self._order(Status.PENDING, online=False, paid=False)
         response = self._post(txn, 'Completed', {'reason': 'ok'})
         self.assertTrue(any('verified as Paid' in m for m in self._messages(response)))
-        self._assert_untouched(txn, Status.PREPARING)
+        self._assert_untouched(txn, Status.PENDING)
+
+    def test_an_online_order_cannot_be_completed_from_the_status_endpoint(self):
+        """Even paid, even with a matching expected_status, even for the
+        Owner: the only way to complete an online order is to record its
+        hand-over. Nothing moves, no stock leaves, no history row is made."""
+        for fulfillment in ('Delivery', 'Pickup'):
+            with self.subTest(fulfillment=fulfillment):
+                txn = self._order(Status.PREPARING, online=True, paid=True)
+                SalesTransaction.objects.filter(pk=txn.pk).update(fulfillment_type=fulfillment)
+                response = self._post(
+                    txn, 'Completed', {'reason': 'ok', 'expected_status': 'Preparing'})
+                messages_ = self._messages(response)
+                self.assertTrue(any('Cannot move' in m for m in messages_), messages_)
+                self.assertTrue(
+                    any('Confirm Delivery' in m or 'Confirm Receipt' in m for m in messages_),
+                    messages_)
+                self._assert_untouched(txn, Status.PREPARING)
+                self.inventory.refresh_from_db()
+                self.assertEqual(self.inventory.quantity_on_hand, 50)
 
     def test_stale_expected_status_is_refused(self):
         txn = self._order(Status.PENDING)
@@ -200,9 +243,13 @@ class StatusTransitionServerValidationTests(_OrderStatusBase):
 
     def test_insufficient_stock_rolls_back_status_and_history(self):
         txn = self._order(Status.PREPARING, online=True, qty=99, paid=True)
-        response = self._post(txn, 'Completed', {'reason': 'ship it'})
-        self.assertTrue(any('Not enough stock' in m for m in self._messages(response)))
+        response = self._handover(txn)
+        # The hand-over form comes back with the reason, and nothing is kept:
+        # no status, no history, no receipt, no burned receipt number.
+        self.assertContains(response, 'Not enough stock')
         self._assert_untouched(txn, Status.PREPARING)
+        self.assertFalse(OrderReceiptConfirmation.objects.exists())
+        self.assertFalse(ReceiptNumberSequence.objects.exists())
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity_on_hand, 50)
 
@@ -228,11 +275,24 @@ class StatusChangeRecordingTests(_OrderStatusBase):
         txn.refresh_from_db()
         self.assertEqual(txn.cancel_reason, 'old client')
 
-    def test_completed_records_optional_note_and_deducts_stock_once(self):
+    def test_completed_records_optional_note_once(self):
+        txn = self._order(Status.PENDING, online=False, qty=2, paid=True)
+        self._post(txn, 'Completed', {'reason': 'Paid at the till'})
+        # A double-submit of the same confirmation must not run it twice.
+        self._post(txn, 'Completed', {'reason': 'Paid at the till'})
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.order_status, Status.COMPLETED)
+        self.assertIsNotNone(txn.completed_at)
+        changes = OrderStatusChange.objects.filter(transaction=txn)
+        self.assertEqual(changes.count(), 1)
+        self.assertEqual(changes[0].reason, 'Paid at the till')
+
+    def test_an_online_order_completed_by_its_hand_over_deducts_stock_once(self):
         txn = self._order(Status.PREPARING, online=True, qty=2, paid=True)
-        self._post(txn, 'Completed', {'reason': 'Handed to rider'})
-        # A double-submit of the same confirmation must not deduct twice.
-        self._post(txn, 'Completed', {'reason': 'Handed to rider'})
+        self._handover(txn)
+        # A double-submit of the same form must not deduct twice.
+        self._handover(txn)
 
         txn.refresh_from_db()
         self.assertEqual(txn.order_status, Status.COMPLETED)
@@ -241,26 +301,40 @@ class StatusChangeRecordingTests(_OrderStatusBase):
         self.assertEqual(self.inventory.quantity_on_hand, 48)
         changes = OrderStatusChange.objects.filter(transaction=txn)
         self.assertEqual(changes.count(), 1)
-        self.assertEqual(changes[0].reason, 'Handed to rider')
+        # The history says which receipt completed it.
+        self.assertRegex(
+            changes[0].reason, r'^Hand-over confirmed — receipt GP-RCPT-\d{8}-\d{5}\.$')
+        self.assertEqual(
+            changes[0].reason.split('receipt ')[1].rstrip('.'),
+            txn.receipt_confirmation.receipt_number,
+        )
 
     def test_completed_without_a_note_is_fine(self):
-        txn = self._order(Status.PREPARING, online=True, paid=True)
+        txn = self._order(Status.PENDING, online=False, paid=True)
         self._post(txn, 'Completed')
         txn.refresh_from_db()
         self.assertEqual(txn.order_status, Status.COMPLETED)
         self.assertEqual(OrderStatusChange.objects.get(transaction=txn).reason, '')
 
     def test_history_is_shown_on_the_detail_page(self):
-        txn = self._order(Status.PREPARING, online=True, paid=True)
-        self._post(txn, 'Completed', {'reason': 'Handed to rider'})
+        txn = self._order(Status.PENDING, online=False, paid=True)
+        self._post(txn, 'Completed', {'reason': 'Paid at the till'})
         html = self.client.get(reverse('transaction_detail', args=[txn.pk])).content.decode()
         self.assertIn('Status History', html)
-        self.assertIn('Handed to rider', html)
+        self.assertIn('Paid at the till', html)
+
+    def test_an_online_hand_over_is_shown_in_the_history_with_its_receipt(self):
+        txn = self._order(Status.PREPARING, online=True, paid=True)
+        self._handover(txn)
+        html = self.client.get(reverse('transaction_detail', args=[txn.pk])).content.decode()
+        self.assertIn('Status History', html)
+        self.assertIn('Hand-over confirmed', html)
+        self.assertIn(txn.receipt_confirmation.receipt_number, html)
 
     @mock.patch('core.notifications.notify')
     def test_voiding_a_completed_sale_reverses_stock_and_records_it(self, _notify):
         txn = self._order(Status.PREPARING, online=True, qty=2, paid=True)
-        self._post(txn, 'Completed')
+        self._handover(txn)
         self._post(txn, 'Cancelled', {'reason': 'Wrong goods'})
 
         txn.refresh_from_db()

@@ -1,7 +1,9 @@
 """Notification events emitted by sales/order state changes."""
 from django.urls import reverse
 
-from core.notifications import EVENT_ORDER_DELIVERED, notify_event
+from core.notifications import (
+    EVENT_ORDER_DELIVERED, EVENT_ORDER_RECEIPT_CONFIRMED, notify_event,
+)
 
 
 def notify_order_delivered(transaction, actor):
@@ -18,6 +20,54 @@ def notify_order_delivered(transaction, actor):
             'orders:track_order', kwargs={'transaction_id': transaction.pk}
         ),
         action_label='View Order',
+        reference_type='sales_transaction',
+        reference_id=transaction.pk,
+    )
+
+
+def notify_receipt_confirmed(transaction, conf, actor, *, by_customer):
+    """Tell the ordering customer a receipt confirmation was recorded.
+
+    Sent for either side: when staff record the hand-over (the message carries
+    the receipt number and links to the receipt), and when the customer taps
+    Confirm themselves (so it also lands in their notification inbox, and says
+    when the order has become fully confirmed). Skipped quietly for an order
+    whose customer account is gone — related_users then has no recipient.
+    """
+    order = transaction.order_number
+    if by_customer:
+        title = f'Receipt confirmed: {order}'
+        message = (
+            f'Thanks — you confirmed you received {order}.'
+            + (' Both you and the store have now confirmed the hand-over.'
+               if conf.is_fully_confirmed else
+               ' The store will record the hand-over on their side.')
+        )
+    else:
+        title = f'Order handed over: {order}'
+        message = (
+            f'{transaction.branch.branch_name} recorded {order} as received '
+            f'(receipt {conf.receipt_number}).'
+            + (' Both you and the store have now confirmed the hand-over.'
+               if conf.is_fully_confirmed else
+               ' Open your order and confirm that you received it.')
+        )
+    # The receipt exists once staff have recorded the hand-over; until then
+    # (customer confirmed first) the Track Order page is the useful link.
+    if conf.staff_confirmed:
+        action_url = reverse('orders:receipt', kwargs={'transaction_id': transaction.pk})
+        action_label = 'View Receipt'
+    else:
+        action_url = reverse('orders:track_order', kwargs={'transaction_id': transaction.pk})
+        action_label = 'View Order'
+    return notify_event(
+        EVENT_ORDER_RECEIPT_CONFIRMED,
+        title, message,
+        branch=transaction.branch,
+        actor=actor,
+        related_users={'customer': transaction.customer},
+        action_url=action_url,
+        action_label=action_label,
         reference_type='sales_transaction',
         reference_id=transaction.pk,
     )
