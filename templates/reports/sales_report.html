@@ -14,7 +14,7 @@
   <div class="row no-print">
     {% include "_daterange.html" %}
     <a class="btn" href="{% url 'export_csv' 'sales' %}?{{ export_query }}">Export CSV</a>
-    <button class="btn btn-primary" onclick="window.print()">Export PDF</button>
+    {% include "reports/_export_buttons.html" with kind="sales" %}
   </div>
 </div>
 

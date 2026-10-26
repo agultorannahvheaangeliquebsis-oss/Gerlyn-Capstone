@@ -401,6 +401,71 @@ Procurement Cost, and the Low Stock count for the same user/scope.
 
 ---
 
+## Report exports: PDF and Excel (Summary definitions)
+
+**What it answers:** *Export PDF* / *Export Excel* on the four report pages
+(`/reports/export/<sales|billing|inventory|procurement>.pdf` and `.xlsx`)
+download a file that opens with a **Summary**, then the detail rows grouped by
+branch with per-branch subtotals (only when more than one branch is listed)
+and a grand total. `reports/exports.py` builds one `ReportDocument` per report;
+the PDF (xhtml2pdf, `templates/reports/pdf/`) and the workbook (openpyxl: a
+`Summary` sheet, then the detail sheet) are two renderers over it, so they
+cannot disagree.
+
+**One queryset, two readers.** Each builder resolves its rows once, through the
+function the report page itself calls — `scoped_sales_in_range`,
+`scoped_billing_in_range`, `scoped_procurement_in_range`, `scoped_inventory`
+(`reports/services.py`) — and computes every Summary figure from that queryset
+with the helpers the page's KPI cards use (`sales_range_totals`,
+`billing_figures`, `procurement_figures`, `inventory_figures` in
+`reports/views.py`). The filters are the page's: `range`/`date_from`/`date_to`/
+`date` and, for an Owner, `branch` (the page's own `export_query` carries them);
+a Manager/Staff account's own branch always wins and an unassigned account gets
+the "No records" page. Inventory is a live snapshot with no date range.
+`reports/tests_exports.py` asserts each Summary line against the page context,
+the dashboard and the detail rows (subtotals sum to the grand total).
+
+| Report | Summary line | Definition |
+|---|---|---|
+| Sales | Total orders | Every order in the listed range, all statuses (the table's row count) |
+| | Completed / Cancelled / In progress | `order_status`; Completed = the Dashboard's *Total Transactions*; In progress = Pending + Approved + Preparing. The three add up to Total orders |
+| | Refunded | Orders with at least one **Approved** refund |
+| | Walk-in / Online | `transaction_type` Physical / Online, all statuses (as the Reports tab's Online Orders) |
+| | Gross sales / Total refunds / Net sales | Section above. The Dashboard's *Total Sales* card is **gross**; the Reports headline is **net** — both are printed and labelled |
+| | Payments received | Completed orders by `mode_of_payment`, before refunds, so the rows add up to Gross sales |
+| | Best branch | Highest Net sales among branches; only when an Owner has every branch selected |
+| Billing | Verified / Pending | `BillingRecord.status` Paid / Pending (the page's *Collected* / *Pending Collection*) |
+| | Total amount verified | `SUM(amount_due)` over Paid records. Refunded and partially refunded records are not Paid, matching the page |
+| | By payment method | Every record in range by `payment_method`, with the Paid amount |
+| | Net revenue | Completed orders net of refunds (`billing_figures`) = the Dashboard's net sales |
+| Inventory | Total products | Distinct products with a floor-stock row (= the page's *Product Lines*, the Dashboard's *Total Products (Floor)*) |
+| | Total stock value | Units x unit cost, cost = deepest bulk price tier (`_inventory_unit_cost`) |
+| | In Stock / Low Stock / Critical / No Stock | `inventory.alerts.stock_status` — the Floor Stock page's Status column. Critical + No Stock = the Dashboard's *Low / Critical* count (`quantity_on_hand <= reorder_level`) |
+| | Near-expiry | Floor stock lines whose nearest batch expires within 90 days (Expiring Soon ≤30d, Approaching 31–90d) — the Non-Performing & Near-Expiry table's rule. Already-expired stock is counted on its own line |
+| Procurement | POs by status | Count and `total_cost` per `Procurement.status` |
+| | Total ordered value | `procurement_cost_total`: every status except Cancelled (the page's *Gross Procurement*) |
+| | Total received value | What physically arrived: `SUM(quantity_received x unit_cost_snapshot)`, partial deliveries included. The detail table's *Received* column sums to it |
+| | Closed POs / Still open / Net procurement | The page's *Closed PO Value* (status Received), *PO Value (Active)* and *Net Procurement* |
+| | Rejected and returned | Deliveries with outcome Rejected; POs flagged Discrepancy; supplier returns requested/acknowledged/shipped/settled with their units; value shipped back and credit notes (`procurement_return_totals`) |
+
+**Payment-method rows** (Sales and Billing): *Cash* = Cash plus Cash on
+Delivery and Pay at Store; *GCash* and *Maya* are one row each; *Card*; *Other
+methods* = QR Ph, Charge Sale, Bank Transfer. Nothing is dropped, so the rows add up
+to the total above them (`payment_group` in `reports/exports.py`).
+
+**Not counted in totals:** amounts shown on Cancelled and in-progress orders
+(Sales) and on Cancelled purchase orders (Procurement) are listed for reference
+only. A footnote on each file says so.
+
+**PDF limits:** orientation is declared per report on its `ReportDocument`
+(all four are landscape: they are 8–10 columns wide). A PDF holds at most
+`MAX_PDF_ROWS` (800) rows — xhtml2pdf measured ~19 ms a row and a worker is held
+for the render (`--timeout 60`); past that the export redirects back with a
+message pointing at Excel/CSV, which have no ceiling. Money is written
+"PHP 1,234.00" in the PDF because the built-in font has no peso glyph.
+
+---
+
 ## Non-performing products
 
 **What it answers:** "Which products, sitting on the shelf right now, are

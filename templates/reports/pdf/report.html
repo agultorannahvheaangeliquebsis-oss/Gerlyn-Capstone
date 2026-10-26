@@ -1,0 +1,105 @@
+{% extends "reports/pdf/base.html" %}
+{% comment %}
+The body shared by all four reports. Every difference between them — columns,
+summary blocks, grouping, orientation — arrives as data on the ReportDocument,
+so there is one template to keep right rather than four that drift.
+{% endcomment %}
+{% block content %}
+{% if doc.is_empty %}
+
+{# One table cell, not nested divs: xhtml2pdf draws a container's border around each child block. #}
+<table class="empty">
+  <tr>
+    <td>
+      <div class="empty-title">No records for the selected filters</div>
+      <div class="empty-sub">
+        Nothing in the {{ doc.title }} matched {{ doc.branch_label }} &middot; {{ doc.period_label }}.<br/>
+        Try a wider date range or a different branch.
+      </div>
+    </td>
+  </tr>
+</table>
+
+{% else %}
+
+<div class="section-title" style="margin-top:0;">Summary</div>
+
+<table class="kpi">
+  <tr>
+    {% for k in headline %}
+    <td style="width:{{ k.width }}%;">
+      <div class="kpi-label">{{ k.label }}</div>
+      <div class="kpi-value">{{ k.text }}</div>
+    </td>
+    {% endfor %}
+  </tr>
+</table>
+
+<div class="gap">&nbsp;</div>
+
+{% for block_row in block_rows %}
+<table class="blocks">
+  <tr>
+    {% for b in block_row %}
+    <td class="block-cell" style="width:{{ b.width }}%;">
+      <div class="block-title">{{ b.title }}</div>
+      <table class="sum">
+        <thead>
+          <tr>
+            {% for h in b.headers %}<th{% if h.align == 'right' %} class="num"{% endif %} style="width:{{ h.width }}%;">{{ h.label }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in b.rows %}
+          <tr{% if b.total_row and forloop.last %} class="sum-total"{% endif %}>
+            {% for c in row %}<td{% if c.align == 'right' %} class="num"{% endif %}>{{ c.text }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </td>
+    {% endfor %}
+  </tr>
+</table>
+<div class="gap">&nbsp;</div>
+{% endfor %}
+
+<div class="section-title">{{ doc.detail_title }}</div>
+
+{% for g in groups %}
+<table class="detail">
+  <thead>
+    <tr><th class="group" colspan="{{ columns|length }}">Branch: {{ g.title }}</th></tr>
+    <tr>
+      {% for c in columns %}<th{% if c.align == 'right' %} class="num"{% endif %} style="width:{{ c.width }}%;">{{ c.label }}</th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in g.rows %}
+    <tr>
+      {% for c in row %}<td{% if c.align == 'right' %} class="num"{% endif %}>{{ c.text }}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+    {% if g.subtotal %}
+    <tr class="subtotal">
+      <td colspan="{{ g.subtotal.span }}">{{ g.subtotal.label }}</td>
+      {% for c in g.subtotal.cells %}<td class="num">{% if c.text != '—' %}{{ c.text }}{% endif %}</td>{% endfor %}
+    </tr>
+    {% endif %}
+    {% if forloop.last and grand_total %}
+    <tr class="grand">
+      <td colspan="{{ grand_total.span }}">{{ grand_total.label }}</td>
+      {% for c in grand_total.cells %}<td class="num">{% if c.text != '—' %}{{ c.text }}{% endif %}</td>{% endfor %}
+    </tr>
+    {% endif %}
+  </tbody>
+</table>
+{% if not forloop.last %}<div class="gap">&nbsp;</div>{% endif %}
+{% endfor %}
+
+<div class="notes">
+  {% for note in doc.notes %}<div>{{ note }}</div>{% endfor %}
+</div>
+
+{% endif %}
+{% endblock %}

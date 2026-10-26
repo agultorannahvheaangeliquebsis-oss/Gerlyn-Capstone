@@ -34,7 +34,8 @@ from reports.services import (
     gross_sales_total, low_stock_count, net_sales_total, pipeline_sales,
     pipeline_value_total, procurement_cost_total, procurement_return_totals,
     refund_value_total, revenue_sales,
-    sales_range_totals, scoped_report_querysets, scoped_sales_in_range,
+    sales_range_totals, scoped_billing_in_range, scoped_inventory,
+    scoped_procurement_in_range, scoped_report_querysets, scoped_sales_in_range,
 )
 
 
@@ -2105,7 +2106,7 @@ def reports_dashboard(request):
     The Reports hub — opens straight onto the Sales Report: every transaction
     the user's role can see, filterable by branch (Owner only — a Manager's
     own branch is already the whole story) and by month, with the
-    same CSV/print-to-PDF export as the other per-process reports.
+    same CSV / PDF / Excel export as the other per-process reports.
     """
     user_branch = get_user_branch(request.user)
     branch_ids = branch_ids_for_user(request.user)
@@ -2679,6 +2680,26 @@ def _inventory_branch_summary(records):
 NON_PERFORMING_SALES_WINDOW_DAYS = 30
 
 
+def nearest_floor_expiry(branch_ids=None):
+    """{(product_id, branch_id): nearest expiry date} over FLOOR batches that
+    still hold stock — same source expiry_alerts() reads, just grouped down to
+    one date per product/branch row instead of one row per lot. Shared by the
+    Non-Performing & Near-Expiry table and the Inventory export, so both read
+    one definition of "this row's expiry".
+
+    `branch_ids=None` -> all branches (Owner)."""
+    batch_qs = Batch.objects.filter(
+        location=Batch.Location.FLOOR, expiry_date__isnull=False, quantity__gt=0,
+    )
+    if branch_ids is not None:
+        batch_qs = batch_qs.filter(branch_id__in=branch_ids)
+    return {
+        (row['product_id'], row['branch_id']): row['nearest']
+        for row in batch_qs.values('product_id', 'branch_id')
+        .annotate(nearest=Min('expiry_date'))
+    }
+
+
 def _non_performing_products(branch_ids=None):
     """
     Flag every floor-stock (Inventory) row that is non-performing,
@@ -2741,19 +2762,7 @@ def _non_performing_products(branch_ids=None):
         .annotate(units=Sum('quantity_sold'))
     }
 
-    # Nearest FLOOR batch expiry per product/branch — same source
-    # expiry_alerts() reads, just grouped down to one date per row instead
-    # of one row per lot, since this table is keyed by product/branch.
-    batch_qs = Batch.objects.filter(
-        location=Batch.Location.FLOOR, expiry_date__isnull=False, quantity__gt=0,
-    )
-    if branch_ids is not None:
-        batch_qs = batch_qs.filter(branch_id__in=branch_ids)
-    nearest_expiry = {
-        (row['product_id'], row['branch_id']): row['nearest']
-        for row in batch_qs.values('product_id', 'branch_id')
-        .annotate(nearest=Min('expiry_date'))
-    }
+    nearest_expiry = nearest_floor_expiry(branch_ids)
 
     rows = []
     for inv in inv_qs:
@@ -2923,9 +2932,10 @@ def _billing_payment_breakdown(completed_records, total_revenue, refunds_by_tran
 # =============================================================================
 # CSV EXPORT
 # One entry point for every report so the columns stay consistent.
-# PDF: the report pages carry a print stylesheet — "Export PDF" opens the
-# browser's print dialog (Save as PDF). That keeps the system dependency-free
-# and working offline, per the deployment constraints.
+# PDF and Excel: Export PDF / Export Excel download a real file (reports/
+# exports.py, reports/export_views.py) that opens with a Summary; xhtml2pdf is
+# pure Python, so that needs no system libraries and works offline too. The
+# pages' print stylesheet still covers Ctrl+P.
 # =============================================================================
 
 # Excel/Sheets treats a cell starting with one of these as a formula to
@@ -3104,38 +3114,14 @@ def export_csv(request, kind):
     return response
 
 
-@management_report_required
-def billing_report(request):
-    user_branch = get_user_branch(request.user)
-    branch_ids = branch_ids_for_user(request.user)
-    show_branch_filter = branch_ids is None  # Owner only
+def billing_figures(records):
+    """The Billing Report's headline figures for one already-listed row set —
+    the single place they are computed, so the page's KPI cards and the
+    PDF/Excel export's Summary read the same numbers.
 
-    records_qs = BillingRecord.objects.select_related('transaction', 'transaction__branch')
-    if branch_ids is not None:
-        records_qs = records_qs.filter(transaction__branch_id__in=branch_ids)
-
-    branch_filter = request.GET.get('branch', '')
-    if branch_filter and show_branch_filter:
-        records_qs = records_qs.filter(transaction__branch_id=branch_filter)
-    else:
-        branch_filter = ''
-
-    # Shared §2e range, replacing the bare from/to pair. Half-open aware
-    # bounds, NOT date_recorded__date__gte/__lte — `date_recorded` is a
-    # DateTimeField, so those lookups go through CONVERT_TZ on MySQL and
-    # silently match zero rows here, which once made both date inputs return
-    # an empty report for every range. local_range_bounds keeps the end
-    # inclusive of its whole day. See core.timebounds.
-    range_start, range_end, active_range = range_from_request(request)
-    _, period_end = local_range_bounds(range_end, range_end)
-    records_qs = records_qs.filter(date_recorded__lt=period_end)
-    # See the Sales tab: 'All time' means no lower bound, not a sentinel date.
-    if range_start is not None:
-        period_start, _ = local_range_bounds(range_start, range_start)
-        records_qs = records_qs.filter(date_recorded__gte=period_start)
-
-    records = list(records_qs.order_by('-date_recorded'))
-
+    `records` is the full filtered list (never a page of it). Revenue is
+    Completed orders only, net of approved refunds — the same Net Sales
+    definition as the Dashboard (reports/services.py)."""
     pending_records = [r for r in records if r.status == BillingRecord.PaymentStatus.PENDING]
     outstanding = sum(r.amount_due for r in pending_records)
     collected_records = [r for r in records if r.status == BillingRecord.PaymentStatus.PAID]
@@ -3160,9 +3146,41 @@ def billing_report(request):
     refund_value = sum(refunds_by_transaction.values())
     total_revenue = gross_revenue - refund_value
 
-    payment_breakdown = _billing_payment_breakdown(
-        completed_records, total_revenue, refunds_by_transaction
-    )
+    return {
+        'pending_count': len(pending_records),
+        'outstanding': outstanding,
+        'collected_count': len(collected_records),
+        'collected': collected,
+        'completed_count': len(completed_records),
+        'gross_revenue': gross_revenue,
+        'refund_value': refund_value,
+        'total_revenue': total_revenue,
+        'payment_breakdown': _billing_payment_breakdown(
+            completed_records, total_revenue, refunds_by_transaction
+        ),
+    }
+
+
+@management_report_required
+def billing_report(request):
+    user_branch = get_user_branch(request.user)
+    branch_ids = branch_ids_for_user(request.user)
+    show_branch_filter = branch_ids is None  # Owner only
+
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
+
+    # Shared §2e range, replacing the bare from/to pair. The rows come from
+    # reports.services.scoped_billing_in_range — branch scope, the Owner's
+    # branch pick and half-open range bounds (NOT date_recorded__date__gte, which
+    # goes through CONVERT_TZ on MySQL and silently matches zero rows; see
+    # core.timebounds). The PDF/Excel export calls the same function, so the
+    # printed report lists exactly these rows. 'All time' means no lower bound.
+    range_start, range_end, active_range = range_from_request(request)
+    records = list(scoped_billing_in_range(
+        request.user, range_start, range_end, branch_id=branch_filter,
+    ))
+
+    figures = billing_figures(records)
 
     # Every figure above comes from the full `records`; only the table is paged.
     page = paginate(request, records)
@@ -3184,18 +3202,18 @@ def billing_report(request):
         # (partials/_branch_switch.html): the range must survive a branch
         # change too.
         'branch_switch_carry': _range_carry(active_range, range_start, range_end),
-        'completed_count': len(completed_records),
-        'total_revenue': total_revenue,
+        'completed_count': figures['completed_count'],
+        'total_revenue': figures['total_revenue'],
         # Not currently rendered by billing_report.html — carried for
         # auditability and the web/API parity tests, same as
         # reports_dashboard's gross_sales/refund_value.
-        'gross_revenue': gross_revenue,
-        'refund_value': refund_value,
-        'collected': collected,
-        'collected_count': len(collected_records),
-        'outstanding': outstanding,
-        'pending_count': len(pending_records),
-        'payment_breakdown': payment_breakdown,
+        'gross_revenue': figures['gross_revenue'],
+        'refund_value': figures['refund_value'],
+        'collected': figures['collected'],
+        'collected_count': figures['collected_count'],
+        'outstanding': figures['outstanding'],
+        'pending_count': figures['pending_count'],
+        'payment_breakdown': figures['payment_breakdown'],
         'user_branch': user_branch,
         'active_page': 'reports',
         # KATRINA-REPORT-002: so Export CSV downloads the rows this page is
@@ -3265,32 +3283,42 @@ def sales_report(request):
     })
 
 
+def inventory_figures(inventory_qs):
+    """(records, figures) for the Inventory Report: the filtered rows as a list,
+    each carrying a `.value` (unit cost x quantity on hand), and the headline
+    numbers over them. The single place these are computed — the page's KPI
+    cards and the PDF/Excel export's Summary both call it."""
+    records = list(inventory_qs)
+    for inv in records:
+        inv.value = _inventory_unit_cost(inv) * inv.quantity_on_hand
+
+    return records, {
+        'total_units': sum(inv.quantity_on_hand for inv in records),
+        'total_value': sum(inv.value for inv in records),
+        # The canonical live predicate (reports.services.low_stock_count), not
+        # the stored Inventory.restock flag — see that function's docstring.
+        'low_critical_count': low_stock_count(inventory_qs),
+        'product_lines': len({inv.product_id for inv in records if inv.product_id}),
+    }
+
+
 @management_report_required
 def inventory_report(request):
     user_branch = get_user_branch(request.user)
     branch_ids = branch_ids_for_user(request.user)
     show_branch_filter = branch_ids is None  # Owner only
 
-    inventory_qs = Inventory.objects.select_related('product', 'branch').prefetch_related('product__price_tiers').all()
-    if branch_ids is not None:
-        inventory_qs = inventory_qs.filter(branch_id__in=branch_ids)
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
 
-    branch_filter = request.GET.get('branch', '')
-    if branch_filter and show_branch_filter:
-        inventory_qs = inventory_qs.filter(branch_id=branch_filter)
-    else:
-        branch_filter = ''
-
-    records = list(inventory_qs.order_by('branch__branch_name', 'product__product_name'))
-    for inv in records:
-        inv.value = _inventory_unit_cost(inv) * inv.quantity_on_hand
-
-    total_units = sum(inv.quantity_on_hand for inv in records)
-    total_value = sum(inv.value for inv in records)
-    # The canonical live predicate (reports.services.low_stock_count), not
-    # the stored Inventory.restock flag — see that function's docstring.
-    low_critical_count = low_stock_count(inventory_qs)
-    product_lines = len({inv.product_id for inv in records if inv.product_id})
+    # Rows and headline figures come from reports.services.scoped_inventory and
+    # inventory_figures — the PDF/Excel export reads the same two, so its
+    # Summary cannot disagree with this page.
+    inventory_qs = scoped_inventory(request.user, branch_id=branch_filter)
+    records, figures = inventory_figures(inventory_qs)
+    total_units = figures['total_units']
+    total_value = figures['total_value']
+    low_critical_count = figures['low_critical_count']
+    product_lines = figures['product_lines']
 
     branch_summary = _inventory_branch_summary(records)
     chart = _inventory_value_chart(branch_summary)
@@ -3327,6 +3355,8 @@ def inventory_report(request):
         # No other filter on this tab, so nothing else to carry — see
         # reports_dashboard's identical comment for the ones that do.
         'branch_switch_carry': [],
+        # Inventory has no range; the export only needs the Owner's branch pick.
+        'export_query': urlencode([('branch', branch_filter)] if branch_filter else []),
         'total_value': total_value,
         'total_units': total_units,
         'low_critical_count': low_critical_count,
@@ -3385,32 +3415,14 @@ def _daily_spend_series(records, start, end):
     return series
 
 
-@management_report_required
-def procurement_report(request):
-    user_branch = get_user_branch(request.user)
-    branch_ids = branch_ids_for_user(request.user)
-    show_branch_filter = branch_ids is None  # Owner only
+def procurement_figures(procurement_qs, records):
+    """The Procurement Report's headline figures — the single place they are
+    computed, so the page's KPI cards and the PDF/Excel export's Summary read
+    the same numbers.
 
-    procurement_qs = Procurement.objects.select_related('branch', 'supplier').all()
-    if branch_ids is not None:
-        procurement_qs = procurement_qs.filter(branch_id__in=branch_ids)
-
-    branch_filter = request.GET.get('branch', '')
-    if branch_filter and show_branch_filter:
-        procurement_qs = procurement_qs.filter(branch_id=branch_filter)
-    else:
-        branch_filter = ''
-
-    # Shared §2e range, replacing the bare from/to pair. `order_date` is a
-    # plain DateField with no tz component, so it compares against the dates
-    # directly — no local_range_bounds needed here (see core/timebounds).
-    range_start, range_end, active_range = range_from_request(request)
-    procurement_qs = procurement_qs.filter(order_date__lte=range_end)
-    # See the Sales tab: 'All time' means no lower bound, not a sentinel date.
-    if range_start is not None:
-        procurement_qs = procurement_qs.filter(order_date__gte=range_start)
-
-    records = list(procurement_qs.order_by('-order_date'))
+    `procurement_qs` is the filtered queryset and `records` the same rows as a
+    list (the page needs the list anyway, so it is passed in rather than
+    queried a second time)."""
     gross_procurement = procurement_cost_total(procurement_qs)
     return_totals = procurement_return_totals(procurement_qs)
     net_procurement = gross_procurement - return_totals['net_adjustment']
@@ -3430,6 +3442,45 @@ def procurement_report(request):
     status_counts = {choice.value: 0 for choice in Procurement.Status}
     for p in records:
         status_counts[p.status] = status_counts.get(p.status, 0) + 1
+
+    return {
+        'gross_procurement': gross_procurement,
+        'return_totals': return_totals,
+        'net_procurement': net_procurement,
+        'active_value': active_value,
+        'received_value': received_value,
+        'pending_delivery': pending_delivery,
+        'status_counts': status_counts,
+    }
+
+
+@management_report_required
+def procurement_report(request):
+    user_branch = get_user_branch(request.user)
+    branch_ids = branch_ids_for_user(request.user)
+    show_branch_filter = branch_ids is None  # Owner only
+
+    branch_filter = request.GET.get('branch', '') if show_branch_filter else ''
+
+    # Shared §2e range, replacing the bare from/to pair. The rows come from
+    # reports.services.scoped_procurement_in_range (branch scope, the Owner's
+    # branch pick, and `order_date` — a plain DateField with no tz component —
+    # compared against the dates directly, see core/timebounds). The PDF/Excel
+    # export calls the same function. 'All time' means no lower bound.
+    range_start, range_end, active_range = range_from_request(request)
+    procurement_qs = scoped_procurement_in_range(
+        request.user, range_start, range_end, branch_id=branch_filter,
+    )
+
+    records = list(procurement_qs)
+    procurement_totals = procurement_figures(procurement_qs, records)
+    gross_procurement = procurement_totals['gross_procurement']
+    return_totals = procurement_totals['return_totals']
+    net_procurement = procurement_totals['net_procurement']
+    active_value = procurement_totals['active_value']
+    received_value = procurement_totals['received_value']
+    pending_delivery = procurement_totals['pending_delivery']
+    status_counts = procurement_totals['status_counts']
 
     # Totals and the status chart use the full `records`; only the table is paged.
     page = paginate(request, records)

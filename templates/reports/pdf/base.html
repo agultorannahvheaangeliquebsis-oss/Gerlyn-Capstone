@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{ doc.title }} - {{ doc.branch_label }}</title>
+<style>
+  {% comment %}
+  The shared layout of every report PDF (Sales, Billing, Inventory,
+  Procurement): the running header, the "Page X of Y" footer, fonts, and the
+  table styling. A report template extends this and fills `content`; it never
+  restyles the page. Orientation is each report's own choice, set on its
+  ReportDocument (reports/exports.py) and reaching here as `page_size`.
+
+  Rendered by xhtml2pdf (reportlab under the hood), not a browser — a CSS2.1-ish
+  subset: no flexbox, no grid, no custom properties, so layout is tables, like
+  the purchase-order and receipt PDFs. What the layout leans on, checked
+  against the pinned xhtml2pdf rather than assumed:
+
+  - A <thead> repeats on every page with no attribute needed. Each branch's
+    table keeps TWO rows in its <thead> — the branch name, then the column
+    headings — so a table that runs onto a second page repeats both, and a
+    continuation page always says which branch it is still listing. reportlab
+    never leaves a table's header alone at the bottom of a page: at least one
+    data row travels with it.
+  - A row is never split across a page break: tables are built with
+    splitByRow, which only breaks between rows.
+  - <pdf:pagenumber/> and <pdf:pagecount/> resolve in a static frame, which is
+    what the footer is. They sit in plain blocks, not table cells (a page
+    number inside a cell keeps its unresolved placeholder).
+  - Helvetica has no peso sign, so money is written "PHP 1,234.00".
+  - Cell padding is written in whole px: a bare `td` gets ~21pt rows at 8pt
+    type, `padding: 1px 4px` ~15pt. A header frame that is too short drops
+    what does not fit (xhtml2pdf logs "static frame dropped N flowables") —
+    the header below is sized with room to spare, and a test fails on that log.
+  {% endcomment %}
+  @page {
+    size: {{ page_size }};
+    margin: 37mm 11mm 16mm 11mm;
+    @frame header_frame {
+      -pdf-frame-content: pdf_header;
+      top: 7mm; left: 11mm; right: 11mm; height: 29mm;
+    }
+    @frame footer_left_frame {
+      -pdf-frame-content: pdf_footer_left;
+      bottom: 7mm; left: 11mm; width: {{ footer_left_mm }}mm; height: 6mm;
+    }
+    @frame footer_right_frame {
+      -pdf-frame-content: pdf_footer_right;
+      bottom: 7mm; right: 11mm; width: 52mm; height: 6mm;
+    }
+  }
+
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 8.5pt; color: #1a1a1a; }
+  table { width: 100%; }
+
+  /* ---- running header ---- */
+  .head-store { font-size: 14pt; font-weight: bold; color: #14532d; }
+  .head-app { font-size: 8pt; color: #666666; letter-spacing: 1px; }
+  .head-title { font-size: 15pt; font-weight: bold; text-align: right; color: #1a1a1a; }
+  .head-rule td { border-bottom: 1.5px solid #1e7a4f; padding-bottom: 3px; vertical-align: bottom; }
+  .meta-key { font-size: 6.5pt; color: #777777; letter-spacing: 1px; text-transform: uppercase; padding-top: 4px; }
+  .meta-val { font-size: 8.5pt; font-weight: bold; color: #1a1a1a; }
+
+  /* ---- footer ---- */
+  #pdf_footer_left { font-size: 7.5pt; color: #777777; }
+  #pdf_footer_right { font-size: 7.5pt; color: #444444; text-align: right; }
+
+  /* ---- section titles ---- */
+  .section-title {
+    font-size: 10.5pt; font-weight: bold; color: #14532d;
+    border-bottom: 1px solid #1e7a4f; padding-bottom: 2px; margin-top: 10px; margin-bottom: 6px;
+  }
+
+  /* ---- headline figures ---- */
+  .kpi td { background-color: #f1f8f4; border-left: 3px solid #1e7a4f; border-right: 5px solid #ffffff;
+            padding: 5px 8px; vertical-align: top; }
+  .kpi-label { font-size: 6.5pt; color: #555555; letter-spacing: 1px; text-transform: uppercase; }
+  .kpi-value { font-size: 12.5pt; font-weight: bold; color: #14532d; margin-top: 1px; }
+
+  /* ---- summary blocks ---- */
+  .blocks td.block-cell { vertical-align: top; padding-right: 10px; }
+  .block-title { font-size: 8.5pt; font-weight: bold; color: #14532d; margin-bottom: 3px; }
+  .sum th { background-color: #e3f3eb; color: #14532d; font-size: 7pt; text-align: left;
+            padding: 2px 5px; border-bottom: 1px solid #1e7a4f; }
+  .sum th.num { text-align: right; }
+  .sum td { padding: 1px 5px; border-bottom: 1px solid #e6e6e6; font-size: 8pt; }
+  .sum tr.sum-total td { font-weight: bold; background-color: #f2f2f2; border-top: 1px solid #333333; }
+  .num { text-align: right; }
+
+  /* ---- detail tables ---- */
+  .detail th { background-color: #1e7a4f; color: #ffffff; font-size: 7.2pt; text-align: left;
+               padding: 3px 4px; }
+  .detail th.num { text-align: right; }
+  .detail th.group { background-color: #e3f3eb; color: #14532d; font-size: 9pt;
+                     border-bottom: 1px solid #1e7a4f; padding: 4px 5px; }
+  .detail td { padding: 1px 4px; border-bottom: 1px solid #e3e3e3; font-size: 7.8pt;
+               -pdf-keep-in-frame-mode: shrink; }
+  .detail tr.subtotal td { font-weight: bold; background-color: #f2f2f2; border-top: 1px solid #333333; }
+  .detail tr.grand td { font-weight: bold; background-color: #e3f3eb; border-top: 2px solid #14532d;
+                        font-size: 8.5pt; padding-top: 3px; padding-bottom: 3px; }
+  .gap { font-size: 6pt; }
+
+  .notes { margin-top: 10px; font-size: 7pt; color: #666666; line-height: 1.4; }
+
+  /* ---- empty state ---- */
+  table.empty { margin-top: 30px; }
+  table.empty td { border: 1.5px solid #cfd8d3; background-color: #f7faf8; padding: 40px 30px; text-align: center; }
+  .empty-title { font-size: 16pt; font-weight: bold; color: #14532d; }
+  .empty-sub { font-size: 9.5pt; color: #555555; margin-top: 8px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<div id="pdf_header">
+  <table>
+    <tr>
+      <td style="width:55%;">
+        <div class="head-store">{{ store_name }}</div>
+        <div class="head-app">{{ app_name }}</div>
+      </td>
+      <td style="width:45%;"><div class="head-title">{{ doc.title }}</div></td>
+    </tr>
+  </table>
+  <table>
+    <tr class="head-rule">
+      <td style="width:22%;"><div class="meta-key">Branch</div><div class="meta-val">{{ doc.branch_label }}</div></td>
+      <td style="width:36%;"><div class="meta-key">Period</div><div class="meta-val">{{ doc.period_label }}</div></td>
+      <td style="width:21%;"><div class="meta-key">Generated by</div><div class="meta-val">{{ doc.generated_by }}</div></td>
+      <td style="width:21%;"><div class="meta-key">Generated</div><div class="meta-val">{{ doc.generated_label }}</div></td>
+    </tr>
+  </table>
+</div>
+
+<div id="pdf_footer_left">{{ store_name }} &middot; {{ app_name }} &middot; {{ doc.title }} &middot; {{ doc.branch_label }}</div>
+<div id="pdf_footer_right">Page <pdf:pagenumber/> of <pdf:pagecount/></div>
+
+{% block content %}{% endblock %}
+
+</body>
+</html>

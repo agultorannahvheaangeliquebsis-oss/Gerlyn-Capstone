@@ -45,6 +45,7 @@ from django.db.models import DecimalField, Sum
 from django.db.models.functions import Coalesce
 
 from accounts.models import User
+from billing.models import BillingRecord
 from branches.models import Branch
 from core.scoping import branch_for_user, scope_queryset
 from core.timebounds import local_range_bounds
@@ -299,8 +300,80 @@ def scoped_sales_in_range(user, start, end, branch_id=None):
     account gets nothing — see scoped_report_querysets) within the local
     calendar days [start, end], newest first.
 
-    The one path the Sales Report page, its JSON mirror and its CSV export
-    all read, so the three cannot list or total different rows."""
+    The one path the Sales Report page, its JSON mirror, its CSV export and
+    its PDF/Excel export all read, so they cannot list or total different
+    rows."""
     sales_qs = scoped_report_querysets(user, override_branch_id=branch_id)[0]
     sales_qs = sales_qs.select_related('branch', 'staff', 'customer')
     return sales_in_range(sales_qs, start, end).order_by('-transaction_date')
+
+
+# --- Row sets the report pages and their PDF/Excel exports share ------------
+#
+# The Billing, Procurement and Inventory report pages each used to build their
+# queryset inline. The PDF/Excel exports need the very same rows (their Summary
+# block is computed from the queryset the detail table lists), so the
+# construction lives here once and both callers read it.
+
+def owner_branch_choice(user, raw):
+    """The branch id an Owner narrowed a report to, or None.
+
+    Only an Owner has a branch selector — a Manager/Staff account's own branch
+    always wins — and a malformed `?branch=` narrows nothing rather than
+    raising ValueError out of filter(branch_id='abc')."""
+    if user.role != User.Role.OWNER or raw in (None, ''):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def scoped_billing_in_range(user, start, end, branch_id=None):
+    """Billing records `user` may see, recorded within [start, end], newest
+    first. `start=None` is 'All time' (no lower bound).
+
+    Half-open aware bounds, NOT date_recorded__date__gte/__lte — that lookup
+    goes through CONVERT_TZ on MySQL and silently matches zero rows here (see
+    core.timebounds)."""
+    qs = BillingRecord.objects.select_related(
+        'transaction', 'transaction__branch', 'confirmed_by',
+    )
+    qs = scope_queryset(qs, user, 'transaction__branch')  # fails closed
+    branch_id = owner_branch_choice(user, branch_id)
+    if branch_id:
+        qs = qs.filter(transaction__branch_id=branch_id)
+    _, period_end = local_range_bounds(end, end)
+    qs = qs.filter(date_recorded__lt=period_end)
+    if start is not None:
+        period_start, _ = local_range_bounds(start, start)
+        qs = qs.filter(date_recorded__gte=period_start)
+    return qs.order_by('-date_recorded', '-pk')
+
+
+def scoped_procurement_in_range(user, start, end, branch_id=None):
+    """Purchase orders `user` may see, ordered within [start, end], newest
+    first. `order_date` is a plain DateField, so it compares against the dates
+    directly. `start=None` is 'All time'."""
+    qs = Procurement.objects.select_related('branch', 'supplier')
+    qs = scope_queryset(qs, user, 'branch')  # fails closed
+    branch_id = owner_branch_choice(user, branch_id)
+    if branch_id:
+        qs = qs.filter(branch_id=branch_id)
+    qs = qs.filter(order_date__lte=end)
+    if start is not None:
+        qs = qs.filter(order_date__gte=start)
+    return qs.order_by('-order_date', '-pk')
+
+
+def scoped_inventory(user, branch_id=None):
+    """Floor-stock rows `user` may see, one per product and branch. Inventory
+    is a live snapshot with no date axis."""
+    qs = Inventory.objects.select_related('product', 'branch').prefetch_related(
+        'product__price_tiers'
+    )
+    qs = scope_queryset(qs, user, 'branch')  # fails closed
+    branch_id = owner_branch_choice(user, branch_id)
+    if branch_id:
+        qs = qs.filter(branch_id=branch_id)
+    return qs.order_by('branch__branch_name', 'product__product_name', 'pk')

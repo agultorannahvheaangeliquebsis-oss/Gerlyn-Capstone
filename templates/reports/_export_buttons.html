@@ -1,0 +1,14 @@
+{% comment %}
+Export PDF / Export Excel for one report, shared by all four report pages.
+`kind` is sales | billing | inventory | procurement; `export_query` is the
+page's own range and branch, so the file lists the rows the page is showing
+(reports/exports.py). Both open with a Summary.
+{% endcomment %}
+<a class="btn btn-primary" href="{% url 'export_pdf' kind %}?{{ export_query }}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
+  Export PDF
+</a>
+<a class="btn" href="{% url 'export_xlsx' kind %}?{{ export_query }}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
+  Export Excel
+</a>

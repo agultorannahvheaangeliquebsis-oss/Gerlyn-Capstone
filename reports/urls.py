@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import export_views, views
 
 urlpatterns = [
     path('', views.reports_dashboard, name='reports_dashboard'),
@@ -10,4 +10,8 @@ urlpatterns = [
     path('billing/', views.billing_report, name='billing_report'),
     # CSV export: kind = sales | inventory | procurement | billing
     path('export/<str:kind>.csv', views.export_csv, name='export_csv'),
+    # PDF / Excel: the same four kinds, each opening with a Summary. See
+    # reports/exports.py.
+    path('export/<str:kind>.pdf', export_views.export_pdf, name='export_pdf'),
+    path('export/<str:kind>.xlsx', export_views.export_xlsx, name='export_xlsx'),
 ]
