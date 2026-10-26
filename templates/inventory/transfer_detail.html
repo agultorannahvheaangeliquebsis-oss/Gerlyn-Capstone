@@ -55,6 +55,9 @@
     {% if transfer.acknowledged_by or transfer.received_qty is not None %}
     <div><dt>{% if is_restock %}Confirmed by{% else %}Completed by{% endif %}</dt><dd>{{ transfer.acknowledged_by.username|default:"—" }}</dd></div>
     {% endif %}
+    {% if damage_report %}
+    <div><dt>Damage report</dt><dd>{% if can_open_damage_report %}<a href="{% url 'damage_report_detail' damage_report.pk %}">{{ damage_report.report_number }}</a>{% else %}{{ damage_report.report_number }}{% endif %}<span class="gv-meta">{{ damage_report.stock_location|default:"Floor" }} stock &middot; {{ damage_report.get_damage_type_display }}</span></dd></div>
+    {% endif %}
     {% if transfer.notes %}<div class="tx-wide"><dt>Notes</dt><dd>{{ transfer.notes }}</dd></div>{% endif %}
   </dl>
 

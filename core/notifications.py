@@ -66,6 +66,8 @@ EVENT_ORDER_RECEIPT_CONFIRMED = 'order_receipt_confirmed'
 EVENT_PAYMENT_VERIFIED = 'payment_verified'
 EVENT_PAYMENT_REJECTED = 'payment_rejected'
 EVENT_EXPIRY_WRITE_OFF = 'expiry_write_off'
+EVENT_DAMAGE_REPORT_SUBMITTED = 'damage_report_submitted'
+EVENT_DAMAGE_REPORT_STATUS = 'damage_report_status'
 
 # Executable notification matrix.  ``internal`` means all active Owners plus
 # the branch's active Manager/Staff accounts that can access required_module.
@@ -251,6 +253,32 @@ EVENT_MATRIX = {
         'required_module': FLOOR_STOCK,
         'allowed_modules': (FLOOR_STOCK, WAREHOUSE_STOCK),
         'exclude_actor': False,
+    },
+    EVENT_DAMAGE_REPORT_SUBMITTED: {
+        'when': 'Staff file a damaged-product report, or a customer reports a '
+                'problem with a received order.',
+        'recipients': 'Owner and the branch Manager who can review damage '
+                      'reports. Never other Staff: they cannot decide it.',
+        # 'manager' is supplied by the call site (damage_reports.services) so
+        # Staff who merely hold the module for filing are not paged about
+        # reports they cannot act on.
+        'audiences': ('manager',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_MEDIUM,
+        'required_module': None,
+        'exclude_actor': True,
+    },
+    EVENT_DAMAGE_REPORT_STATUS: {
+        'when': 'A damage report moves to Under Review, Approved, Rejected or '
+                'Resolved.',
+        'recipients': 'The person who filed the report (staff or customer), '
+                      'unless they made the change themselves.',
+        'audiences': ('reporter',),
+        'category': CATEGORY_PROCUREMENT,
+        'priority': PRIORITY_LOW,
+        'priority_note': 'Medium when the report is rejected.',
+        'required_module': None,
+        'exclude_actor': True,
     },
 }
 

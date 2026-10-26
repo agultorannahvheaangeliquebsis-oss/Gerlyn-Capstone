@@ -810,6 +810,33 @@ banner rather than a full card (see .pd-negotiate-banner above).
   </div>
   {% endif %}
 
+  {% if can_report_damage or damage_reports %}
+  <div class="card table-wrap" id="damage-reports">
+    <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">
+      <h3>Damaged goods</h3>
+      {% if can_report_damage %}<a class="btn btn-sm" href="{% url 'damage_report_create' %}?procurement={{ procurement.pk|unlocalize }}">Report damaged goods</a>{% endif %}
+    </div>
+    <table class="gv-table">
+      <thead><tr><th>Report</th><th>Product</th><th class="num">Units</th><th>Status</th><th>Filed</th><th class="end">Action</th></tr></thead>
+      <tbody>
+        {% for r in damage_reports %}
+        <tr>
+          <td data-label="Report" class="sku strong">{{ r.report_number }}</td>
+          <td data-label="Product">{{ r.product_label }}{% if r.flagged_for_supplier_return %} <span class="tag">Flagged for return</span>{% endif %}</td>
+          <td data-label="Units" class="num">{{ r.quantity }}</td>
+          <td data-label="Status">{% include "partials/_damage_status_pill.html" with status=r.status %}</td>
+          <td data-label="Filed" class="gv-meta">{{ r.created_at|date:"Y-m-d" }}</td>
+          <td data-label="Action" class="end"><a class="icon-btn icon-btn-action" href="{% url 'damage_report_detail' r.pk %}"
+             data-detail-modal="Damage Report" title="View" aria-label="View damage report {{ r.report_number }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6"><span class="gv-meta">No damage reported on this delivery. If goods arrived crushed, leaking or otherwise damaged, choose Report damaged goods and attach photos.</span></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   {% if can_return_goods or supplier_returns %}
   <div class="card table-wrap" id="returns">
     <div class="card-pad row-between" style="border-bottom:1px solid var(--line);">

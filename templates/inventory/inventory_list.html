@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load static pager %}
+{% load static pager l10n %}
 {% block title %}Floor Stock{% endblock %}
 {% block page_subtitle %}Inventory{% endblock %}
 {% block branch_scope %}{% if user_branch %}{{ user_branch.branch_name }}{% elif active_branch %}{{ active_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -83,8 +83,12 @@ partials/_branch_switch.html.
     <h1>Floor Stock</h1>
     {% comment "" %}<p class="gv-meta mb-0">What's on the shelf, available to sell{% if user_branch %} — {{ user_branch.branch_name }}{% elif active_branch %} — {{ active_branch.branch_name }}{% else %} across all branches{% endif %}</p>{% endcomment %}
   </div>
-  {% if can_adjust %}
+  {% if can_adjust or can_report_damage %}
   <div class="row" style="gap:8px;">
+    {% if can_report_damage %}
+    <a class="btn" href="{% url 'damage_report_create' %}{% if filter_branch %}?branch={{ filter_branch.pk|unlocalize }}{% endif %}">Report Damaged Product</a>
+    {% endif %}
+    {% if can_adjust %}
     {% if request.user.role == 'OWNER' %}
     <button type="button" class="btn" id="open-opening-upload-modal">Import Opening Stock</button>
     <a class="btn" href="{% url 'opening_stock_import_history' %}">Import History</a>
@@ -93,6 +97,7 @@ partials/_branch_switch.html.
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
       Correct Stock Count
     </button>
+    {% endif %}
   </div>
   {% endif %}
 </div>
@@ -252,7 +257,7 @@ across the full width leave the default block padding as empty card.
         <th>Received</th>
         <th class="num">Reorder Level</th>
         <th>Status</th>
-        {% if can_edit_reorder %}<th class="end">Actions</th>{% endif %}
+        {% if show_actions %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -290,12 +295,18 @@ across the full width leave the default block padding as empty card.
           {% endcomment %}
           {% if row.status != "In Stock" %}<br><span class="gv-meta">{{ row.inv.available_qty }} on hand{% if row.suggested_qty %} · +{{ row.suggested_qty }} suggested{% endif %}</span>{% endif %}
         </td>
-        {% if can_edit_reorder %}
+        {% if show_actions %}
         <td data-label="Actions">
           <span class="row-actions">
+            {% if can_edit_reorder %}
             <button type="button" class="icon-btn icon-btn-action"
                     title="Edit reorder level" aria-label="Edit reorder level for {{ row.inv.product.product_name }}"
                     onclick="openEditInventory({{ row.inv.pk }}, '{{ row.inv.product.product_name|escapejs }}', '{{ row.inv.branch.branch_name|escapejs }}', {{ row.inv.reorder_level }})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+            {% endif %}
+            {% if can_report_damage and row.batch %}
+            <a class="icon-btn icon-btn-action" href="{% url 'damage_report_create' %}?batch={{ row.batch.pk|unlocalize }}&amp;branch={{ row.inv.branch_id|unlocalize }}"
+               title="Report damaged product" aria-label="Report damaged {{ row.inv.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.29 3.86-8.18 14.14A2 2 0 0 0 3.82 21h16.36a2 2 0 0 0 1.71-3l-8.18-14.14a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></a>
+            {% endif %}
           </span>
         </td>
         {% endif %}

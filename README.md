@@ -20,7 +20,7 @@ five core business processes identified in the process analysis:
 |---|---|
 | **Sales & Orders** | Walk-in POS + an Order Console for online orders (Pending → Approved → Preparing → Completed / Cancelled) |
 | **Billing** | A billing record per sale; payment method + status recorded, GCash reference & proof upload |
-| **Inventory** | Product master list, per-branch stock, FEFO batches/expiry, withdrawal slips with receipt acknowledgment |
+| **Inventory** | Product master list, per-branch stock, FEFO batches/expiry, withdrawal slips with receipt acknowledgment, damaged-product reports with photo evidence |
 | **Procurement** | Suppliers, purchase orders, and deliveries that update stock only after receipt validation |
 | **Reporting** | Dashboard + Sales/Inventory/Procurement/Billing reports, CSV & PDF export, consolidated or per-branch |
 
@@ -268,7 +268,8 @@ views can never drift apart.
 | `sales` | Order Console, POS, order lifecycle |
 | `billing` | Billing records, payment verification |
 | `procurement` | Suppliers, purchase orders, deliveries |
-| `orders` | Customer storefront (catalog, cart, checkout) |
+| `orders` | Customer storefront (catalog, cart, checkout, "Report a problem" on a received order) |
+| `damage_reports` | Damaged Product Reports: photo evidence, manager review, stock / refund / supplier-return follow-through |
 | `reports` | Dashboard, reports, CSV export |
 | `audit` | Append-only Audit Log of every data change (System & Monitoring) |
 | `backups` | Encrypted off-site backups to Backblaze, restore check, status page (System & Monitoring) |
@@ -283,6 +284,21 @@ views can never drift apart.
   parent permission, and the same centralized gate protects template pages
   and `/api/` routes before their existing role and branch checks run.
 
+- **Damaged Product Reports** — staff file a report from Floor Stock, Warehouse Stock or a
+  received purchase order (product, batch, quantity up to what is on hand, type, description,
+  up to 5 JPG/PNG photos of 5 MB each); a customer files one from a received order inside the
+  7-day refund window and must attach a photo. Filing moves nothing. A Branch Manager (own
+  branch) or the Owner reviews it under *Inventory → Damage Reports* and approves or
+  rejects it; approval is the one place anything changes, in one transaction, once:
+  *write-off* deducts the units from the floor or warehouse by batch and generates a
+  withdrawal slip linked to the report; a customer *refund* goes through the existing refund
+  workflow (judged at the day the customer filed, not the day it was decided);
+  *return to supplier* only flags the goods against the purchase order (the supplier return
+  takes them out of the warehouse when it ships). A rejected report keeps its photos. Photos
+  are private (never under `/media/`) and are streamed through role/branch-checked views.
+  Every status change is in the Audit Log and notifies the reporter; new reports notify the
+  Owner and branch Manager. The Inventory Report has a *Damaged Goods* section (units and
+  estimated loss per product and branch).
 - **Branch scoping** — `core/scoping.py` filters every queryset server-side. The UI's
   branch dropdown is never the only guard.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online
@@ -640,7 +656,8 @@ that were placed on public storage and remove those public copies after the
 private originals are confirmed. Run `python manage.py migrate` as part of the
 deploy.
 
-Back-office pages, sensitive API results, CSV/XLSX/PDF exports, payment proofs, and avatars
+Back-office pages, sensitive API results, CSV/XLSX/PDF exports, payment proofs, avatars,
+and damage-report photos (`media/damage_reports/`, never served from `/media/`)
 require a current session and the applicable role, branch, or record ownership.
 Authenticated responses carry `Cache-Control: no-store`. Test copied links in
 a signed-out browser and under a second role after deployment, using test data.

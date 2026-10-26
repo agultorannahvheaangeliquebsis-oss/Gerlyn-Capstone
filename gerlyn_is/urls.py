@@ -36,6 +36,7 @@ urlpatterns = [
     path('internal/notifications/read-all/', notification_mark_all_read, name='notification_mark_all_read'),
     path('', include('accounts.urls', namespace='accounts')),
     path('inventory/', include('inventory.urls')),
+    path('damage-reports/', include('damage_reports.urls')),
     path('branches/', include('branches.urls')),
     path('sales/', include('sales.urls')),
     path('procurement/', include('procurement.urls')),

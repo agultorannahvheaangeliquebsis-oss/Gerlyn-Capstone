@@ -153,6 +153,18 @@ REGISTRY = {
     'sales.RefundItem': AuditConfig(
         'Refund item', branch_path='refund.transaction.branch_id',
     ),
+    # --- damage reports ------------------------------------------------------
+    # Every status change is a field diff on the report itself (status,
+    # reviewed_by, resolution, ...), so the log shows who moved it and when.
+    # `description` is the reporter's own words - a customer's, for a customer
+    # report - so, like the receipt confirmation notes, it is masked. The
+    # photos are file fields and are always recorded only as "[file]".
+    'damage_reports.DamageReport': AuditConfig(
+        'Damage report', repr_field='report_number', mask=_f('description'),
+    ),
+    'damage_reports.DamageReportPhoto': AuditConfig(
+        'Damage report photo', branch_path='report.branch_id',
+    ),
     # --- billing -------------------------------------------------------------
     'billing.BillingRecord': AuditConfig(
         'Payment record', branch_path='transaction.branch_id',

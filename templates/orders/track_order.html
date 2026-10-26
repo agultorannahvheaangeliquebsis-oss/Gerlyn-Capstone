@@ -134,6 +134,64 @@
   {% endif %}
 
   {% comment %}
+  Report a problem (damaged / spoiled goods, with photos). Offered on a
+  Completed order inside the same window refunds use - the rule is
+  damage_reports.services.customer_block_reason, and the report view re-checks
+  it on POST. Reports already filed stay listed here with their status so the
+  customer is not left wondering. They are shown in plain words: the store's
+  internal notes are never printed, only the reason a report was not approved.
+  {% endcomment %}
+  {% if problem.can_report or problem.reports %}
+  <div class="card card-pad mt-4">
+    <h3 class="mb-4">Problem with your order?</h3>
+    {% if problem.can_report %}
+    <p class="gv-meta mb-4">If something arrived damaged, spoiled or wrong, send us a photo. You can report a problem until {{ problem.closes|date:"F d, Y — g:i A" }} ({{ problem.window_days }} days after your order was received).</p>
+    <a class="btn" href="{% url 'orders:report_problem' sale.pk %}">Report a problem</a>
+    {% elif problem.all_reported %}
+    <p class="gv-meta mb-0">Every item on this order has already been reported or refunded.</p>
+    {% elif problem.block %}
+    <p class="gv-meta mb-0">{{ problem.block }}</p>
+    {% endif %}
+
+    {% if problem.reports %}
+    <div class="mt-4">
+      {% for r in problem.reports %}
+      <div style="padding:12px 0; border-top:1px solid var(--line-soft);">
+        <div class="row-between wrap">
+          <div>
+            <span class="strong">{{ r.report_number }}</span>
+            <span class="gv-meta">&middot; {{ r.quantity }} &times; {{ r.product_label }} &middot; {{ r.created_at|date:"M d, Y" }}</span>
+          </div>
+          {% include "partials/_damage_status_pill.html" with status=r.status customer=True %}
+        </div>
+        {% if r.status == "Rejected" %}
+        <p class="gv-meta mb-0 mt-2">Not approved: {{ r.resolution_notes|default:"the store could not confirm the problem." }}</p>
+        {% elif r.status == "Approved" or r.status == "Resolved" %}
+        <p class="gv-meta mb-0 mt-2">
+          {% if r.resolution == "refund" and r.refund %}A refund of ₱{{ r.refund.total_amount|floatformat:2 }} was recorded for this item.
+          {% elif r.resolution == "replacement" %}The store will replace this item.
+          {% else %}The store has reviewed this report.{% endif %}
+        </p>
+        {% endif %}
+        {% if r.photos.all %}
+        <div class="row wrap mt-2" style="gap:6px;">
+          {% for photo in r.photos.all %}
+          <a href="{% url 'orders:problem_photo' sale.pk r.pk photo.pk %}" target="_blank" rel="noopener"
+             aria-label="Photo {{ forloop.counter }} of {{ r.report_number }}">
+            <img src="{% url 'orders:problem_photo' sale.pk r.pk photo.pk %}" alt="" loading="lazy"
+                 style="width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
+          </a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% comment %}
   S-10 — the page named the branch but gave no way to actually reach it if
   something about the order needs sorting out.
 

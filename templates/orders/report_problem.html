@@ -1,0 +1,88 @@
+{% extends "public_base.html" %}
+{% load static l10n %}
+{% block title %}Report a problem — {{ sale.order_number }} — GERLYN{% endblock %}
+
+{% block extra_css %}
+<style>
+  .dr-items { border: 0; margin: 0 0 var(--s4, 16px); padding: 0; display: grid; gap: var(--s2, 8px); }
+  .dr-items legend { font-weight: 600; margin-bottom: var(--s2, 8px); padding: 0; }
+  .dr-item {
+    display: flex; gap: var(--s3, 12px); align-items: flex-start; cursor: pointer;
+    padding: var(--s3, 12px); border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface);
+  }
+  .dr-item:has(input:checked) { border-color: var(--brand); background: var(--green-50); }
+  .dr-item input { margin-top: 3px; flex: none; }
+  .dr-item .gv-meta { display: block; }
+  .dr-form > :is(.field, .dr-items) ~ :is(.field, .dr-items) { margin-top: var(--s4); }
+  .dr-hint { display: block; margin-top: 4px; }
+  .dr-photos-list { list-style: none; margin: var(--s3, 12px) 0 0; padding: 0; display: grid; gap: var(--s2, 8px); grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .dr-photos-list li { border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; background: var(--surface-2); }
+  .dr-photos-list img { display: block; width: 100%; height: 90px; object-fit: cover; }
+  .dr-photos-list span { display: block; padding: 4px 6px; font-size: 12px; color: var(--ink-600); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section" style="max-width:760px;">
+  <p class="mb-4"><a class="back-link" href="{% url 'orders:track_order' sale.pk %}">{{ sale.order_number }}</a></p>
+
+  <div class="card card-pad">
+    <h2>Report a problem</h2>
+    <p class="gv-meta mb-4">
+      Tell us which item arrived damaged or spoiled and add a photo. {{ sale.branch.branch_name }} will review it
+      and let you know. You can report a problem until
+      <strong>{{ closes|date:"F d, Y — g:i A" }}</strong> ({{ window_days }} days after your order was received).
+    </p>
+
+    {% if error %}<div class="banner banner-error" role="alert"><span>{{ error }}</span></div>{% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="dr-form" data-damage-form data-require-photo
+          data-max-photos="{{ max_photos }}" data-max-photo-mb="{{ max_photo_mb }}">
+      {% csrf_token %}
+      <fieldset class="dr-items">
+        <legend>Which item?</legend>
+        {% for row in lines %}
+        <label class="dr-item">
+          <input type="radio" name="sales_item_id" value="{{ row.item.pk|unlocalize }}" data-dr-item
+                 data-max="{{ row.remaining|unlocalize }}" required
+                 {% if posted.sales_item_id == row.item.pk|stringformat:"d" %}checked{% elif forloop.first and not posted.sales_item_id %}checked{% endif %}>
+          <span>
+            {{ row.item.product.product_name }}
+            <span class="gv-meta">You bought {{ row.item.quantity_sold }} &middot; you can report up to {{ row.remaining }}</span>
+          </span>
+        </label>
+        {% endfor %}
+      </fieldset>
+
+      <div class="field">
+        <label for="dr-qty">How many are affected?</label>
+        <input id="dr-qty" type="number" name="quantity" min="1" step="1" required inputmode="numeric"
+               value="{{ posted.quantity|default:'1' }}" data-dr-qty>
+      </div>
+
+      <div class="field">
+        <label for="dr-desc">What is wrong?</label>
+        <textarea id="dr-desc" name="description" rows="4" maxlength="{{ max_description }}" required
+                  placeholder="e.g. The can was dented and leaking when I opened the bag.">{{ posted.description }}</textarea>
+      </div>
+
+      <div class="field">
+        <label for="dr-photos">Photos <span class="gv-meta">(required &mdash; up to {{ max_photos }})</span></label>
+        <input id="dr-photos" type="file" name="photos" multiple required accept="image/jpeg,image/png" data-dr-photos>
+        <span class="gv-meta dr-hint">JPG or PNG, up to {{ max_photo_mb }} MB each. Show the damage and, if you can, the label.</span>
+        <p class="field-error" role="alert" data-dr-photo-error hidden></p>
+        <ul class="dr-photos-list" data-dr-photo-list></ul>
+      </div>
+
+      <div class="row wrap mt-6">
+        <button type="submit" class="btn btn-primary">Send report</button>
+        <a class="btn" href="{% url 'orders:track_order' sale.pk %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/damage-report-form.js' %}"></script>
+{% endblock %}

@@ -143,6 +143,9 @@ INSTALLED_APPS = [
     'billing',
     'reports',
     'orders',
+    # Damaged Product Reports: photo evidence, manager review, and the stock /
+    # refund / supplier-return follow-through.
+    'damage_reports',
     # Ledger + endpoints behind the offline queue (static/js/offline-sync.js):
     # replays changes queued while offline, exactly once, through the real views.
     'offline_sync',

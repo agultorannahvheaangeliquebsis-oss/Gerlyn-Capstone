@@ -1,0 +1,286 @@
+{% extends base_template %}
+{% load l10n %}
+{% block title %}{{ report.report_number }}{% endblock %}
+{% block page_subtitle %}Inventory{% endblock %}
+{% block branch_scope %}{{ report.branch.branch_name|default:"No branch" }}{% endblock %}
+
+{% block extra_css %}
+<style>
+  {% comment %}
+  Damage Report detail. Page-scoped rules, prefixed dr-, composed from the same
+  shared families Supplier Return Detail uses (.card, .od-card, .od-h, .pill,
+  .btn, .banner, .gv-table). Main column: the decision, the report, the photos.
+  Side column: what approval did, and the history. The side-by-side split is
+  only drawn on the full page; inside the ?modal=1 overlay everything stays in
+  one column.
+  {% endcomment %}
+  .dr-sub { margin: 4px 0 0; font-size: 14.5px; color: var(--ink-600); }
+  .dr-sub .dr-dot { margin: 0 6px; color: var(--ink-400); }
+
+  .banner .btn { flex: none; white-space: nowrap; }
+
+  .dr-grid { display: flex; flex-direction: column; gap: var(--s4); }
+  .dr-main, .dr-side { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+  .dr-grid .card { margin: 0; }
+  @media (min-width: 1040px) {
+    .dr-grid--split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+  }
+
+  .dr-rows { margin: 0; }
+  .dr-rows > div {
+    display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4);
+    padding: 10px 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .dr-rows > div:first-child { padding-top: 0; }
+  .dr-rows > div:last-child { border-bottom: 0; padding-bottom: 0; }
+  .dr-rows dt { flex: none; font-size: 13.5px; color: var(--ink-600); }
+  .dr-rows dd { margin: 0; min-width: 0; text-align: right; font-size: 14.5px; color: var(--ink-900); overflow-wrap: anywhere; }
+  .dr-rows .dr-block { display: block; }
+  .dr-rows .dr-block dd { margin-top: 4px; text-align: left; white-space: pre-line; }
+
+  .dr-photos { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .dr-photos a { display: block; border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; background: var(--surface-2); }
+  .dr-photos img { display: block; width: 100%; height: 130px; object-fit: cover; }
+
+  .dr-choices { border: 0; margin: 0 0 var(--s4); padding: 0; display: grid; gap: var(--s2); }
+  .dr-choices legend { font-weight: 600; margin-bottom: var(--s2); padding: 0; }
+  .dr-choice {
+    display: flex; gap: var(--s3); align-items: flex-start;
+    padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-card);
+    cursor: pointer; background: var(--surface);
+  }
+  .dr-choice:has(input:checked) { border-color: var(--brand); background: var(--green-50); }
+  .dr-choice input[type=radio] { margin-top: 3px; flex: none; }
+  .dr-choice-body { min-width: 0; display: grid; gap: 4px; }
+  .dr-choice-body .gv-meta { display: block; }
+  .dr-choice select { max-width: 240px; margin-top: 4px; }
+
+  .dr-form-block { margin-top: var(--s4); }
+  .dr-form-block + .dr-form-block { margin-top: var(--s6); padding-top: var(--s6); border-top: 1px solid var(--line-soft); }
+  .dr-form-block .field + .field { margin-top: var(--s3); }
+  .dr-row-actions { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center; }
+
+  .dr-log { list-style: none; margin: 0; padding: 0; display: grid; }
+  .dr-log li { position: relative; padding: 0 0 var(--s3) 22px; font-size: 14.5px; }
+  .dr-log li::before {
+    content: ""; position: absolute; left: 2px; top: 5px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--brand);
+  }
+  .dr-log li::after {
+    content: ""; position: absolute; left: 6px; top: 16px; bottom: 0; width: 1px; background: var(--line);
+  }
+  .dr-log li:last-child { padding-bottom: 0; }
+  .dr-log li:last-child::after { display: none; }
+  .dr-log strong { display: block; font-weight: 700; color: var(--ink-900); }
+  .dr-log .dr-when { display: block; font-size: 13.5px; color: var(--ink-600); }
+  .dr-log .dr-note { display: block; font-size: 14px; color: var(--ink-700); overflow-wrap: anywhere; }
+
+  @media (max-width: 560px) {
+    .dr-rows > div { flex-direction: column; gap: 2px; }
+    .dr-rows dd { text-align: left; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'damage_report_list' %}">Damage Reports</a>
+    <h1 class="mt-2">{{ report.report_number }} {% include "partials/_damage_status_pill.html" with status=report.status %}</h1>
+    <p class="dr-sub">{{ report.product_label }}<span class="dr-dot" aria-hidden="true">&middot;</span>{{ report.quantity }} unit{{ report.quantity|pluralize }}<span class="dr-dot" aria-hidden="true">&middot;</span>{{ report.get_damage_type_display }}</p>
+  </div>
+</div>
+
+{% if report.flagged_for_supplier_return and report.status == "Approved" %}
+<div class="banner banner-info" role="status">
+  <span><strong>Waiting to go back to the supplier.</strong>
+    {{ report.quantity }} unit{{ report.quantity|pluralize }}{% if report.procurement %} from purchase order {{ report.procurement.po_number }}{% endif %}
+    {{ report.quantity|pluralize:"is,are" }} flagged for return. Stock leaves the warehouse when the supplier return is shipped &mdash; this report deducted nothing.</span>
+  {% if can_start_supplier_return %}
+  <a class="btn btn-sm" href="{% url 'supplier_return_add' report.procurement_id %}">Start supplier return</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="dr-grid{% if request.GET.modal != '1' %} dr-grid--split{% endif %}">
+  <div class="dr-main">
+
+    {# ------------------------------------------------------------ decision #}
+    {% if can_decide %}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Decision</h3>
+      <p class="gv-meta">Review the photos and the description below. Nothing changes in stock or in the books until you approve.</p>
+
+      {% if can_start_review %}
+      <div class="dr-form-block">
+        <form method="POST" action="{% url 'damage_report_review' report.pk %}" class="dr-row-actions">
+          {% csrf_token %}
+          <button type="submit" class="btn">Start review</button>
+          <span class="gv-meta">Marks the report as being looked at. No stock moves.</span>
+        </form>
+      </div>
+      {% endif %}
+
+      <div class="dr-form-block">
+        <form method="POST" action="{% url 'damage_report_approve' report.pk %}"
+              data-confirm="The chosen outcome is applied now and can't be undone. A report can only be approved once."
+              data-confirm-title="Approve {{ report.report_number }}?"
+              data-confirm-variant="warn"
+              data-confirm-ok="Approve report">
+          {% csrf_token %}
+          <fieldset class="dr-choices">
+            <legend>How should this be resolved?</legend>
+            {% for r in resolutions %}
+            <label class="dr-choice">
+              <input type="radio" name="resolution" value="{{ r.value }}"{% if forloop.first %} checked{% endif %} required>
+              <span class="dr-choice-body">
+                <strong>{{ r.label }}</strong>
+                <span class="gv-meta">{{ r.effect }}</span>
+                {% if r.value == "refund" %}
+                <select name="refund_method" aria-label="How the refund is paid">
+                  {% for value, label in refund_methods %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                </select>
+                {% endif %}
+              </span>
+            </label>
+            {% endfor %}
+          </fieldset>
+          {% if available_now is not None %}
+          <p class="gv-meta">
+            {% if report.inventory_batch %}Batch {{ report.inventory_batch.batch_number }} has{% else %}{{ report.stock_location|default:"Floor" }} stock has{% endif %}
+            {{ available_now }} unit{{ available_now|pluralize }} right now{% if available_now < report.quantity %}
+            &mdash; <strong>fewer than the {{ report.quantity }} on this report</strong>, so a write-off cannot be approved until that is sorted out{% endif %}.
+          </p>
+          {% endif %}
+          <div class="field">
+            <label for="dr-note">Notes <span class="gv-meta">(optional)</span></label>
+            <textarea id="dr-note" name="note" rows="2" maxlength="{{ max_note }}"></textarea>
+          </div>
+          <div class="dr-row-actions mt-4"><button type="submit" class="btn btn-primary">Approve report</button></div>
+        </form>
+      </div>
+
+      <div class="dr-form-block">
+        <form method="POST" action="{% url 'damage_report_reject' report.pk %}"
+              data-confirm="{{ report.report_number }} is closed and the reporter is told. Its photos stay on file."
+              data-confirm-title="Reject this report?"
+              data-confirm-variant="danger"
+              data-confirm-ok="Reject report"
+              data-confirm-dismiss="Keep reviewing">
+          {% csrf_token %}
+          <div class="field">
+            <label for="dr-reason">Reason for rejecting</label>
+            <textarea id="dr-reason" name="reason" rows="2" maxlength="{{ max_note }}" required
+                      placeholder="Shown to the person who filed the report."></textarea>
+          </div>
+          <div class="dr-row-actions mt-4"><button type="submit" class="btn btn-danger">Reject report</button></div>
+        </form>
+      </div>
+    </div>
+    {% elif can_resolve %}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Close this report</h3>
+      <p class="gv-meta">Approved &mdash; {{ report.get_resolution_display|lower }}. Mark it resolved once everything it needed has been done.</p>
+      <form method="POST" action="{% url 'damage_report_resolve' report.pk %}"
+            data-confirm="{{ report.report_number }} is closed. This can't be undone."
+            data-confirm-title="Mark as resolved?"
+            data-confirm-ok="Mark resolved">
+        {% csrf_token %}
+        <div class="field">
+          <label for="dr-resolve-note">Notes <span class="gv-meta">(optional)</span></label>
+          <textarea id="dr-resolve-note" name="note" rows="2" maxlength="{{ max_note }}"></textarea>
+        </div>
+        <div class="dr-row-actions mt-4"><button type="submit" class="btn btn-primary">Mark as resolved</button></div>
+      </form>
+    </div>
+    {% elif report.status == "Rejected" %}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Rejected</h3>
+      <p class="mb-0">{{ report.resolution_notes|default:"No reason was recorded." }}</p>
+      <p class="gv-meta mb-0 mt-2">Nothing moved. The photos below stay on file.</p>
+    </div>
+    {% elif report.status == "Approved" or report.status == "Resolved" %}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">{{ report.status }} &mdash; {{ report.get_resolution_display }}</h3>
+      <p class="mb-0">{% if report.reviewed_by %}Decided by {{ report.reviewed_by.get_full_name|default:report.reviewed_by.username }}{% if report.reviewed_at %} on {{ report.reviewed_at|date:"Y-m-d H:i" }}{% endif %}.{% endif %}</p>
+      {% if report.resolution_notes %}<p class="gv-meta mb-0 mt-2" style="white-space: pre-line;">{{ report.resolution_notes }}</p>{% endif %}
+    </div>
+    {% elif own_report %}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Waiting for a manager</h3>
+      <p class="gv-meta mb-0">Your report has been sent. You will get a notification when it is reviewed. Nothing changes in stock until then.</p>
+    </div>
+    {% endif %}
+
+    {# ------------------------------------------------------------ report #}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Report</h3>
+      <dl class="dr-rows">
+        <div><dt>Product</dt><dd class="strong">{{ report.product_label }}</dd></div>
+        <div><dt>Damaged quantity</dt><dd>{{ report.quantity }}</dd></div>
+        <div><dt>Type of damage</dt><dd>{{ report.get_damage_type_display }}</dd></div>
+        {% if report.stock_location %}<div><dt>Stock location</dt><dd>{{ report.stock_location }}</dd></div>{% endif %}
+        {% if report.inventory_batch %}<div><dt>Batch</dt><dd>{{ report.inventory_batch.batch_number }}{% if report.inventory_batch.expiry_date %} &middot; expires {{ report.inventory_batch.expiry_date|date:"Y-m-d" }}{% endif %}</dd></div>{% endif %}
+        <div><dt>Branch</dt><dd>{{ report.branch.branch_name|default:"—" }}</dd></div>
+        <div><dt>Reported by</dt><dd>{% if report.is_customer_report %}Customer{% if report.reported_by %} &middot; {{ report.reported_by.get_full_name|default:report.reported_by.username }}{% endif %}{% elif report.reported_by %}{{ report.reported_by.get_full_name|default:report.reported_by.username }}{% else %}&mdash;{% endif %}</dd></div>
+        <div><dt>Filed</dt><dd>{{ report.created_at|date:"Y-m-d H:i" }}</dd></div>
+        {% if report.procurement %}<div><dt>Purchase order</dt><dd>{% if module_access.procurement %}<a href="{% url 'procurement_detail' report.procurement_id %}">{{ report.procurement.po_number }}</a>{% else %}{{ report.procurement.po_number }}{% endif %}</dd></div>{% endif %}
+        {% if report.sales_transaction %}<div><dt>Order</dt><dd>{% if module_access.sales_pos %}<a href="{% url 'transaction_detail' report.sales_transaction_id %}">{{ report.sales_transaction.order_number }}</a>{% else %}{{ report.sales_transaction.order_number }}{% endif %}</dd></div>{% endif %}
+        <div><dt>Estimated loss</dt><dd>₱{{ report.loss_value|floatformat:2 }} <span class="gv-meta">at cost</span></dd></div>
+        <div class="dr-block"><dt>Description</dt><dd>{{ report.description }}</dd></div>
+      </dl>
+    </div>
+
+    {# ------------------------------------------------------------- photos #}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">Photos <span class="tag">{{ photos|length }}</span></h3>
+      {% if photos %}
+      <div class="dr-photos">
+        {% for photo in photos %}
+        <a href="{% url 'damage_report_photo' report.pk photo.pk %}" target="_blank" rel="noopener">
+          <img src="{% url 'damage_report_photo' report.pk photo.pk %}" alt="Photo {{ forloop.counter }} of {{ report.report_number }}" loading="lazy">
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="gv-meta mb-0">No photos were attached to this report.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="dr-side">
+    {% if report.withdrawal_slip or report.refund or report.flagged_for_supplier_return %}
+    <div class="card card-pad od-card">
+      <h3 class="od-h">What approval did</h3>
+      <dl class="dr-rows">
+        {% if report.withdrawal_slip %}
+        <div><dt>Withdrawal slip</dt><dd>{% if module_access.withdrawals %}<a href="{% url 'transfer_detail' report.withdrawal_slip_id %}">{{ report.withdrawal_slip.slip_number }}</a>{% else %}{{ report.withdrawal_slip.slip_number }}{% endif %}</dd></div>
+        <div><dt>Stock removed</dt><dd>{{ report.quantity }} unit{{ report.quantity|pluralize }} &middot; {{ report.stock_deducted_at|date:"Y-m-d H:i" }}</dd></div>
+        {% endif %}
+        {% if report.refund %}
+        <div><dt>Refund</dt><dd>₱{{ report.refund.total_amount|floatformat:2 }} &middot; {{ report.refund.status }}{% if module_access.sales_pos %}<br><a href="{% url 'transaction_detail' report.sales_transaction_id %}">See on the order</a>{% endif %}</dd></div>
+        {% endif %}
+        {% if report.flagged_for_supplier_return %}
+        <div><dt>Supplier return</dt><dd>Flagged &middot; {{ report.procurement.po_number }}</dd></div>
+        {% endif %}
+      </dl>
+    </div>
+    {% endif %}
+
+    <div class="card card-pad od-card">
+      <h3 class="od-h">History</h3>
+      <ol class="dr-log">
+        {% for event in events %}
+        <li>
+          <strong>{{ event.to_status }}</strong>
+          <span class="dr-when">{{ event.created_at|date:"Y-m-d H:i" }}{% if event.actor %} &middot; {{ event.actor.get_full_name|default:event.actor.username }}{% endif %}</span>
+          {% if event.note %}<span class="dr-note">{{ event.note }}</span>{% endif %}
+        </li>
+        {% empty %}
+        <li><strong>Filed</strong><span class="dr-when">{{ report.created_at|date:"Y-m-d H:i" }}</span></li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+</div>
+{% endblock %}

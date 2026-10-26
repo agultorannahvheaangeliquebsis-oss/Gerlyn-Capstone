@@ -44,7 +44,7 @@ from core.permissions import (
     BRANCH_MANAGER, HasModuleAccess, OWNER, STAFF, SUPPLIER, role_required,
 )
 from core.module_permissions import (
-    ADD, DELETE, EDIT, DELIVERIES, PROCUREMENT,
+    ADD, DAMAGE_REPORTS, DELETE, EDIT, DELIVERIES, PROCUREMENT,
     user_can_perform_module_action,
 )
 
@@ -324,6 +324,19 @@ def _procurement_timeline(proc, receipts):
     return timeline
 
 
+def _delivery_damage_reports(user, proc):
+    """The damage reports filed against this order that `user` may read."""
+    from damage_reports.models import DamageReport
+    from damage_reports.services import reports_visible_to
+
+    if user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF):
+        return []
+    return list(
+        reports_visible_to(user, DamageReport.objects.filter(procurement=proc))
+        .select_related('product').order_by('-created_at', '-pk')
+    )
+
+
 @login_required(login_url='accounts:login')
 def procurement_detail(request, pk):
     proc = get_object_or_404(
@@ -345,6 +358,17 @@ def procurement_detail(request, pk):
         'progress': _procurement_progress(proc),
         'status_timeline': _procurement_timeline(proc, receipts),
         'supplier_returns': proc.supplier_returns.select_related('supplier'),
+        # Damaged goods found on this delivery (damage_reports). Listed for
+        # anyone who may read the report; filing needs the module's Add grant
+        # and stock from this order to be on hand (it is, once received).
+        'damage_reports': _delivery_damage_reports(request.user, proc),
+        'can_report_damage': (
+            request.user.role in (User.Role.OWNER, User.Role.BRANCH_MANAGER, User.Role.STAFF)
+            and user_can_perform_module_action(request.user, DAMAGE_REPORTS, ADD)
+            and proc.status in (
+                Procurement.Status.RECEIVED, Procurement.Status.PARTIALLY_RECEIVED,
+            )
+        ),
         # Whether the negotiation card has a form for *this* viewer to act on
         # right now, vs. just a status message — see the template's
         # NEGOTIATION block. Kept in one place so the "waiting" banner
@@ -1767,6 +1791,10 @@ def delivery_list(request):
         'can_receive': can_receive,
         'can_add_unexpected': user_can_perform_module_action(
             request.user, DELIVERIES, ADD
+        ),
+        # The receive modal points at Report damaged goods (damage_reports).
+        'can_report_damage': user_can_perform_module_action(
+            request.user, DAMAGE_REPORTS, ADD
         ),
         'staff_delivery_view': staff_delivery_view,
         'show_branch_column': can_access_multiple_branches,

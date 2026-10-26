@@ -1,0 +1,17 @@
+{% comment %}
+Status pill for a DamageReport.
+Usage: {% include "partials/_damage_status_pill.html" with status=report.status %}
+       {% include "partials/_damage_status_pill.html" with status=report.status customer=True %}
+
+Staff wording is the raw status. The customer sees the same five states in
+plain words, because "Under Review" and "Approved" mean nothing to a shopper
+until it says what happens to them.
+Colours follow DESIGN.md's status table: waiting on someone = warn, in
+progress = info, finished well = ok, refused = danger.
+{% endcomment %}
+{% if status == "Resolved" %}<span class="pill pill-ok">Resolved</span>
+{% elif status == "Approved" %}<span class="pill pill-info">{% if customer %}Approved{% else %}Approved{% endif %}</span>
+{% elif status == "Under Review" %}<span class="pill pill-info">{% if customer %}Being reviewed{% else %}Under Review{% endif %}</span>
+{% elif status == "Rejected" %}<span class="pill pill-danger">{% if customer %}Not approved{% else %}Rejected{% endif %}</span>
+{% elif status == "Pending" %}<span class="pill pill-warn">{% if customer %}Received{% else %}Pending{% endif %}</span>
+{% else %}<span class="pill pill-neutral">{{ status }}</span>{% endif %}

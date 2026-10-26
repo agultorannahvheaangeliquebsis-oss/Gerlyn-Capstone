@@ -20,6 +20,8 @@ from inventory.alerts import EXPIRING_SOON_DAYS, _expiry_tier, alert_summary
 from procurement.models import Procurement
 from branches.models import Branch
 from accounts.models import User
+from damage_reports.reporting import PERIODS as DAMAGE_PERIODS
+from damage_reports.reporting import damaged_goods, normalise_period as normalise_damage_period
 from core.pagination import paginate
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset
 from core.permissions import management_report_required
@@ -3300,10 +3302,17 @@ def inventory_report(request):
     non_performing_branch_ids = [int(branch_filter)] if branch_filter else branch_ids
     non_performing_rows = _non_performing_products(non_performing_branch_ids)
 
+    # Damaged Goods (damage_reports): confirmed damage per branch and product,
+    # on the same effective branch scope as the tables above. Never reads a
+    # branch the account cannot see - damaged_goods() fails closed on [].
+    damage_period = normalise_damage_period(request.GET.get('damage_period'))
+    damage_rows, damage_totals = damaged_goods(non_performing_branch_ids, damage_period)
+
     # KPIs, the branch summary and the chart use the full lists; the two
     # detail tables are paged independently (own ?page / ?np_page).
     page = paginate(request, records)
     np_page = paginate(request, non_performing_rows, param='np_page')
+    dg_page = paginate(request, damage_rows, param='dg_page')
 
     return render(request, 'reports/inventory_report.html', {
         'inventory_records': page.object_list,
@@ -3326,6 +3335,11 @@ def inventory_report(request):
         'chart': chart,
         'non_performing_rows': np_page.object_list,
         'non_performing_window_days': NON_PERFORMING_SALES_WINDOW_DAYS,
+        'damage_rows': dg_page.object_list,
+        'dg_page_obj': dg_page,
+        'damage_totals': damage_totals,
+        'damage_period': damage_period,
+        'damage_periods': DAMAGE_PERIODS,
         'user_branch': user_branch,
         'active_page': 'reports',
     })

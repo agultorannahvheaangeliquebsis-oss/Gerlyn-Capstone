@@ -200,4 +200,62 @@ tables. See docs/METRICS.md for the exact rule, thresholds and rationale.
   </table>
 </div>
 {% pager np_page_obj noun="product" param="np_page" %}
+
+{# ---------------------------- damaged goods ---------------------------- #}
+{% comment %}
+Confirmed damage only: damage reports a manager has Approved (or since
+Resolved). Pending, Under Review and Rejected reports are not counted, so the
+figure never includes damage nobody has accepted. Estimated loss = units x the
+unit cost frozen on each report (the same cost basis as Inventory Value
+above). Customer-reported units are the goods a customer got refunded or
+replaced; they are already out of stock, so they sit in their own column.
+See damage_reports.reporting.
+{% endcomment %}
+<div class="card table-wrap mt-6" id="damaged-goods">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <div class="row-between wrap">
+      <h3>Damaged Goods</h3>
+      {# .filter-tabs carries tabs and nothing else (gerlyn.css), so the period is a plain select. #}
+      <form method="get" action="#damaged-goods" class="no-print">
+        {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
+        <select name="damage_period" onchange="this.form.submit()" aria-label="Damaged goods period">
+          {% for code, label, days in damage_periods %}
+          <option value="{{ code }}"{% if damage_period == code %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+    <p class="gv-meta" style="margin:4px 0 0;">
+      Approved damage reports only &mdash; {{ damage_totals.units }} unit{{ damage_totals.units|pluralize }}
+      across {{ damage_totals.reports }} report{{ damage_totals.reports|pluralize }}, estimated loss
+      <strong>₱{{ damage_totals.loss|floatformat:2 }}</strong> at cost.
+    </p>
+  </div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product / SKU</th><th>Branch</th><th class="num">Reports</th><th class="num">Damaged Units</th>
+          <th class="num">Customer-reported</th><th class="num">Estimated Loss</th></tr>
+    </thead>
+    <tbody>
+      {% for row in damage_rows %}
+      <tr>
+        <td data-label="Product / SKU">
+          <span class="strong">{{ row.product }}</span>
+          {% if row.sku %}<div class="gv-meta">{{ row.sku }}</div>{% endif %}
+        </td>
+        <td data-label="Branch" class="gv-meta">{{ row.branch }}</td>
+        <td data-label="Reports" class="num">{{ row.reports }}</td>
+        <td data-label="Damaged Units" class="num strong">{{ row.units }}</td>
+        <td data-label="Customer-reported" class="num">{{ row.customer_units }}</td>
+        <td data-label="Estimated Loss" class="num strong">₱{{ row.loss|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
+        <h3>No damaged goods in this period</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% pager dg_page_obj noun="product" param="dg_page" %}
 {% endblock %}

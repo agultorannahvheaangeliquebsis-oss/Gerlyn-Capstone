@@ -22,6 +22,8 @@ business record plus its action link.
 | Order receipt confirmed | Staff record an online order's hand-over (with its receipt number), or the customer confirms they received it | Customer who placed it | Low | SalesTransaction; customer receipt (or Track Order before the store has recorded the hand-over) |
 | Payment verified | Pending payment moves to Paid | Customer attached to the order | Low | BillingRecord; customer order tracking |
 | Payment rejected | Pending payment moves to Rejected | Customer; Owner; affected branch Manager/Staff with Billing access; deciding actor is excluded from matrix fan-out | High | BillingRecord; customer order tracking or internal billing detail |
+| Damage report submitted | Staff file a damaged-product report, or a customer reports a problem with a received order | Owner and the branch Manager who can open Damage Reports (never other Staff; the filer is excluded) | Medium | DamageReport; report detail |
+| Damage report status | A report moves to Under Review, Approved, Rejected or Resolved | The person who filed it (staff or customer); the deciding actor is excluded | Low (Medium if rejected) | DamageReport; report detail, or the customer's Track Order |
 | Expiry write-off | The daily expiry sweep removes one or more due batches, unattended (no actor) | Owner; affected branch Manager/Staff with access to the affected stock module | High | One notice per (branch, Floor/Warehouse Stock) group per sweep run — never per batch; Expired tab |
 
 Manager and Staff delivery is both branch-scoped and module-gated. Owners are

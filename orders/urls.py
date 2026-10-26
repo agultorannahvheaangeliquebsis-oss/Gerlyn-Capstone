@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import customer_views, receipt_views
+from . import customer_views, damage_views, receipt_views
 
 app_name = 'orders'
 urlpatterns = [
@@ -29,4 +29,11 @@ urlpatterns = [
     path('orders/<int:transaction_id>/receipt/pdf/', receipt_views.order_receipt_pdf, name='receipt_pdf'),
     path('orders/<int:transaction_id>/receipt/evidence/<str:kind>/',
          receipt_views.order_receipt_evidence, name='receipt_evidence'),
+
+    # Reporting a problem (damaged goods) with a received order, and the
+    # photos of the customer's own reports
+    path('orders/<int:transaction_id>/report-problem/',
+         damage_views.report_problem, name='report_problem'),
+    path('orders/<int:transaction_id>/problems/<int:report_id>/photos/<int:photo_id>/',
+         damage_views.problem_photo, name='problem_photo'),
 ]

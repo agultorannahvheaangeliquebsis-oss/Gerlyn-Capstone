@@ -328,14 +328,21 @@ class SalesTransaction(models.Model):
         """What this order is worth after approved refunds."""
         return self.total_amount - self.refunded_amount
 
-    def refund_window_expired(self):
+    def refund_window_expired(self, as_of=None):
         """True once REFUND_WINDOW has passed since this order was completed,
         or when there is no completion date to measure from at all (an order
-        that has never been Completed has nothing to refund yet either)."""
+        that has never been Completed has nothing to refund yet either).
+
+        `as_of` asks the question for another moment instead of now. A damage
+        report (damage_reports.services) is judged at the time the customer
+        filed it, so a manager who decides it on day 9 does not take away a
+        refund the customer asked for on day 3.
+        """
         if self.completed_at is None:
             return True
         from django.utils import timezone
-        return timezone.now() - self.completed_at > self.REFUND_WINDOW
+        moment = as_of if as_of is not None else timezone.now()
+        return moment - self.completed_at > self.REFUND_WINDOW
 
     def can_apply_pwd_senior_discount(self):
         """Whether staff may apply the statutory PWD/Senior discount here.

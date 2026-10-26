@@ -88,10 +88,14 @@ def not_eligible_message(txn):
 # What may be refunded, and by whom
 # ---------------------------------------------------------------------------
 
-def can_request_refund(txn, billing, user):
+def can_request_refund(txn, billing, user, as_of=None):
     """Whether `user` may raise a refund on `txn` right now. The single
     definition the order page asks to decide what to draw and the request
-    path re-asks against locked rows to decide what to allow."""
+    path re-asks against locked rows to decide what to allow.
+
+    `as_of` judges the refund window at that moment instead of now - see
+    SalesTransaction.refund_window_expired. Nothing but a damage report that
+    was itself filed inside the window passes it."""
     return (
         user.role in REQUESTER_ROLES
         and user_can_access_branch(user, txn.branch_id)
@@ -100,7 +104,7 @@ def can_request_refund(txn, billing, user):
         # Partially Refunded still has refundable quantity left on it — an
         # order already refunded once must stay refundable for what remains.
         and billing.status in REFUNDABLE_BILLING_STATUSES
-        and not txn.refund_window_expired()
+        and not txn.refund_window_expired(as_of)
     )
 
 
@@ -152,8 +156,11 @@ def _clean_text(value):
 
 def request_refund(txn_id, user, *, reason_code, reason, refund_method,
                    lines=None, refund_all=False, conditions=None,
-                   default_condition=None):
+                   default_condition=None, as_of=None):
     """Raise a refund on an order.
+
+    `as_of` is for callers acting on a request the customer made earlier (a
+    damage report): the refund window is judged at that moment, not now.
 
     `lines` is a list of dicts {'item_id', 'quantity', 'condition'}. With
     `refund_all` it is ignored and every line's whole remaining quantity is
@@ -187,7 +194,7 @@ def request_refund(txn_id, user, *, reason_code, reason, refund_method,
         billing = BillingRecord.objects.select_for_update().filter(
             transaction=locked_txn
         ).first()
-        if not can_request_refund(locked_txn, billing, user):
+        if not can_request_refund(locked_txn, billing, user, as_of=as_of):
             raise RefundError(not_eligible_message(locked_txn))
 
         sales_items = {

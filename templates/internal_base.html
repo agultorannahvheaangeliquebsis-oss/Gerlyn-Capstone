@@ -82,12 +82,12 @@ DOM — it is off-screen until focused (see .skip-link).
       {# ---------------------------------------------------------- Inventory #}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-inventory" title="Inventory"
-          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' or active_page == 'damage_reports' %}true{% else %}false{% endif %}">
           <i data-lucide="package"></i>
           <span class="sb-label">Inventory</span>
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' %}open{% endif %}" id="tree-inventory">
+        <ul class="sb-tree {% if active_page == 'products' or active_page == 'categories' or active_page == 'stock' or active_page == 'warehouse_stock' or active_page == 'withdrawals' or active_page == 'damage_reports' %}open{% endif %}" id="tree-inventory">
           <li class="sb-tree-inner">
             {% if module_access.products %}
             {% comment %}
@@ -106,6 +106,9 @@ DOM — it is off-screen until focused (see .skip-link).
             {% endif %}
             {% if module_access.withdrawals %}
             <a class="sb-tree-file {% if active_page == 'withdrawals' %}sb-tree-file--active{% endif %}" href="{% url 'transfer_list' %}"><span class="sb-label">Stock Transfers</span></a>
+            {% endif %}
+            {% if module_access.damage_reports %}
+            <a class="sb-tree-file {% if active_page == 'damage_reports' %}sb-tree-file--active{% endif %}" href="{% url 'damage_report_list' %}"><span class="sb-label">Damage Reports</span></a>
             {% endif %}
           </li>
         </ul>
@@ -364,7 +367,7 @@ DOM — it is off-screen until focused (see .skip-link).
     </a>
     {% endif %}
     <details class="more-menu">
-      <summary class="{% if active_page == 'alerts' or active_page == 'billing' or active_page == 'audit' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'internal_settings' %}active{% endif %}">
+      <summary class="{% if active_page == 'alerts' or active_page == 'billing' or active_page == 'audit' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'damage_reports' or active_page == 'internal_settings' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         More
         {% if alert_count and module_access.alerts %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
@@ -387,6 +390,9 @@ DOM — it is off-screen until focused (see .skip-link).
         {% endif %}
         {% if module_access.deliveries %}
         <a class="more-menu-link {% if active_page == 'deliveries' %}active{% endif %}" href="{% url 'delivery_list' %}">Deliveries</a>
+        {% endif %}
+        {% if module_access.damage_reports %}
+        <a class="more-menu-link {% if active_page == 'damage_reports' %}active{% endif %}" href="{% url 'damage_report_list' %}">Damage Reports</a>
         {% endif %}
         <a class="more-menu-link {% if active_page == 'internal_settings' %}active{% endif %}" href="{% url 'internal_settings' %}">Settings</a>
         {% comment %}

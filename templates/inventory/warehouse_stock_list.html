@@ -131,11 +131,18 @@ duplicate them. The chip still tracks the active branch.{% endcomment %}
     <h1>Warehouse Stock{% if warehouse %} — {{ warehouse.name }}{% elif filter_branch %} — {{ filter_branch.branch_name }}{% endif %}</h1>
     {% comment "" %}<p class="gv-meta mb-0">Back-storage levels{% if warehouse %} for {{ warehouse.branch.branch_name }}{% elif filter_branch %} for {{ filter_branch.branch_name }}{% else %} across all branches{% endif %} — supplier deliveries arrive here before stock is moved to the floor</p>{% endcomment %}
   </div>
-  {% if can_request_to_floor %}
-  <button type="button" class="btn btn-primary" id="open-request-modal">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-    Request Floor Refill
-  </button>
+  {% if can_request_to_floor or can_report_damage %}
+  <div class="row" style="gap:8px;">
+    {% if can_report_damage %}
+    <a class="btn" href="{% url 'damage_report_create' %}{% if filter_branch %}?branch={{ filter_branch.pk|unlocalize }}{% endif %}">Report Damaged Product</a>
+    {% endif %}
+    {% if can_request_to_floor %}
+    <button type="button" class="btn btn-primary" id="open-request-modal">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Request Floor Refill
+    </button>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 
@@ -270,7 +277,7 @@ inventory.alerts.stock_status().
         <th>Received</th>
         <th class="num">Reorder Level</th>
         <th>Status</th>
-        {% if can_edit_reorder %}<th class="end">Actions</th>{% endif %}
+        {% if show_actions %}<th class="end">Actions</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -297,19 +304,25 @@ inventory.alerts.stock_status().
           {% elif row.status == "Low Stock" %}<span class="pill pill-warn">Low Stock</span>
           {% else %}<span class="pill pill-ok">In Stock</span>{% endif %}
         </td>
-        {% if can_edit_reorder %}
+        {% if show_actions %}
         <td data-label="Actions">
           <span class="row-actions">
+            {% if can_edit_reorder %}
             <button type="button" class="icon-btn icon-btn-action"
                     title="Edit reorder level" aria-label="Edit reorder level for {{ row.stock.product.product_name }}"
                     onclick="openEditWarehouseStock({{ row.stock.pk }}, '{{ row.stock.product.product_name|escapejs }}', '{{ row.stock.warehouse.branch.branch_name|escapejs }}', {{ row.stock.reorder_level }})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></button>
+            {% endif %}
+            {% if can_report_damage and row.batch %}
+            <a class="icon-btn icon-btn-action" href="{% url 'damage_report_create' %}?batch={{ row.batch.pk|unlocalize }}&amp;branch={{ row.stock.warehouse.branch_id|unlocalize }}"
+               title="Report damaged product" aria-label="Report damaged {{ row.stock.product.product_name }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.29 3.86-8.18 14.14A2 2 0 0 0 3.82 21h16.36a2 2 0 0 0 1.71-3l-8.18-14.14a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></a>
+            {% endif %}
           </span>
         </td>
         {% endif %}
       </tr>
       {% empty %}
       <tr>
-        <td colspan="10">
+        <td colspan="11">
           <div class="empty">
             <span class="glyph">{% include "partials/_empty_icon.html" with icon="box" %}</span>
             <h3>No warehouse stock</h3>

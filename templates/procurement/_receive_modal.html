@@ -37,6 +37,13 @@ one per row.
         delivery's stock all the way to the shelf, so a later restock with a
         different date never overwrites it.
       </div>
+      {% if can_report_damage %}
+      <div class="banner banner-warning">
+        Goods damaged on arrival? Record the receipt first, then use
+        <a href="{% url 'damage_report_create' %}?procurement={{ receive_procurement.pk|unlocalize }}">Report damaged goods</a>
+        on this order to attach photos. A manager reviews it and can flag the units to go back to the supplier.
+      </div>
+      {% endif %}
 
       {# ---------------------------------------------------------- scan #}
       <div class="card card-pad scan-panel no-print">

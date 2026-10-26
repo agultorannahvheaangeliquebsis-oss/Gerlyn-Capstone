@@ -12,6 +12,16 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.39.0',
+        'date': '2026-10-26',
+        'changes': [
+            'Track Order has a "Report a problem" button for a received order: pick the item, say what is wrong and attach a photo. You can report within 7 days of receiving it, and the store lets you know what it decides',
+            {'text': 'New Damage Reports page (Inventory): staff report damaged, expired or spoiled stock from Floor Stock, Warehouse Stock or a received purchase order, with up to 5 photos. Nothing leaves stock until a Branch Manager or the Owner approves it', 'internal': True},
+            {'text': 'Approving a report removes the units from floor or warehouse stock by batch and generates a withdrawal slip linked to it; customer reports go through the refund workflow; goods damaged by the supplier can be flagged for return on the purchase order. A report can only be approved once, and rejected reports keep their photos', 'internal': True},
+            {'text': 'The Inventory Report has a Damaged Goods section with units and estimated loss per product and branch', 'internal': True},
+        ],
+    },
+    {
         'version': '1.38.0',
         'date': '2026-10-25',
         'changes': [

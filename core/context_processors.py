@@ -106,6 +106,8 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     "transfer_detail": "withdrawals", "transfer_approve": "withdrawals",
     "transfer_complete": "withdrawals", "transfer_confirm_receipt": "withdrawals",
     "transfer_flag_discrepancy": "withdrawals",
+    "damage_report_list": "damage_reports", "damage_report_create": "damage_reports",
+    "damage_report_detail": "damage_reports",
     # Procurement
     "supplier_list": "suppliers", "supplier_add": "suppliers",
     "supplier_edit": "suppliers", "supplier_delete": "suppliers",

@@ -1696,6 +1696,12 @@ def my_orders(request):
     })
 
 
+def _problem_panel(sale, customer):
+    # Imported here: damage_views imports this module for customer_required.
+    from .damage_views import problem_panel
+    return problem_panel(sale, customer)
+
+
 @customer_required
 def track_order(request, transaction_id):
     """Follow one order through its stages."""
@@ -1730,6 +1736,9 @@ def track_order(request, transaction_id):
         # "Confirm I received my order" and the receipt links (sales.receipts
         # owns the rules; the confirm view re-checks them on POST).
         'receipt': customer_panel(sale),
+        # "Report a problem" (damaged goods, with photos) and the reports
+        # already filed - damage_reports.services decides eligibility.
+        'problem': _problem_panel(sale, request.user),
         # Only while the store hasn't started on it yet — once it's
         # Preparing, whether it can still be stopped depends on state the
         # shopper isn't shown here, so that stays a staff-side call reached

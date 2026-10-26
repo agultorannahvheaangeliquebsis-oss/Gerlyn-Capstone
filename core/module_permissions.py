@@ -17,6 +17,7 @@ FLOOR_STOCK = 'floor_stock'
 WAREHOUSE_STOCK = 'warehouse_stock'
 WITHDRAWALS = 'withdrawals'
 ALERTS = 'alerts'
+DAMAGE_REPORTS = 'damage_reports'
 SALES_POS = 'sales_pos'
 BILLING = 'billing'
 PROCUREMENT = 'procurement'
@@ -117,6 +118,22 @@ MODULE_PERMISSION_REGISTRY = {
         'label': 'Alerts Center',
         VIEW: ['alerts_center'],
         ADD: [], EDIT: [], DELETE: ['expiry_write_off'],
+    },
+    # Damaged Product Reports. ADD is filing a report (Staff do, for their own
+    # branch); EDIT is deciding one (review/approve/reject/resolve). The views
+    # keep the role rule - only an Owner or Branch Manager can decide - so an
+    # Edit grant on a Staff account opens nothing.
+    DAMAGE_REPORTS: {
+        'label': 'Damage Reports',
+        VIEW: [
+            'damage_report_list', 'damage_report_detail', 'damage_report_photo',
+        ],
+        ADD: ['damage_report_create'],
+        EDIT: [
+            'damage_report_review', 'damage_report_approve',
+            'damage_report_reject', 'damage_report_resolve',
+        ],
+        DELETE: [],
     },
     SALES_POS: {
         'label': 'Sales / Order Console',
@@ -245,6 +262,7 @@ ROLE_DEFAULT_ACTIONS = {
         # Owner/Branch Manager/Staff; this default previously didn't match
         # (KATRINA-RBAC-001).
         ALERTS: [DELETE],
+        DAMAGE_REPORTS: [ADD, EDIT],
         SALES_POS: [ADD, EDIT],
         BILLING: [EDIT],
         PROCUREMENT: [ADD, EDIT, DELETE],
@@ -260,6 +278,9 @@ ROLE_DEFAULT_ACTIONS = {
         # view's own docstring calls this "a safe operational fallback"
         # open to Staff by design.
         ALERTS: [DELETE],
+        # Staff file reports and follow their own; deciding them is a
+        # Manager/Owner job (the views enforce it whatever is granted here).
+        DAMAGE_REPORTS: [ADD],
         SALES_POS: [ADD, EDIT],
         BILLING: [EDIT],
         PROCUREMENT: [],
@@ -282,7 +303,7 @@ ROLE_DEFAULT_MODULES = {
     'BRANCH_MANAGER': list(ALL_MODULE_CODES),
     'STAFF': [
         PRODUCTS, FLOOR_STOCK, WAREHOUSE_STOCK, WITHDRAWALS, ALERTS,
-        SALES_POS, BILLING, PROCUREMENT, DELIVERIES,
+        DAMAGE_REPORTS, SALES_POS, BILLING, PROCUREMENT, DELIVERIES,
     ],
     'SUPPLIER': [PROCUREMENT, DELIVERIES],
     'CUSTOMER': [SALES_POS, BILLING],

@@ -500,6 +500,38 @@ attention" convention as `low_stock_alerts()`/`expiry_alerts()`).
 
 ---
 
+## Damaged goods
+
+**What it answers:** "How many units did each branch lose to damage, and what did
+that cost?" — Reports → Inventory → *Damaged Goods*, one row per branch and product.
+
+**Rule:**
+
+```
+counted reports  = DamageReport WHERE status IN ('Approved', 'Resolved')
+units            = SUM(quantity)
+estimated loss   = SUM(quantity x estimated_unit_cost)
+```
+
+- Pending, Under Review and Rejected reports are **never** counted: damage nobody has
+  accepted is not a loss.
+- `estimated_unit_cost` is frozen on the report when it is filed, from the same cost
+  basis the Inventory Value figure uses (`Product.bulk_floor_price`: the deepest bulk
+  tier, else retail). A later price change does not rewrite what past damage cost.
+- Customer-reported items are included (the store still bears the refund or
+  replacement) and are also shown separately as *Customer-reported* units, since those
+  goods had already left stock when they were sold.
+- The period selector (30 days / 90 days / 12 months / all time, default all time) is
+  measured from the day the manager confirmed the report (`reviewed_at`).
+- Branch scope follows the Inventory Report: a Manager sees their own branch, the
+  Owner every branch or the one picked; an unassigned account sees nothing.
+- Zero edge case: no confirmed reports in the period shows an empty-state row and a
+  zero total, not an error.
+
+**Implementation:** `damage_reports/reporting.py::damaged_goods()`.
+
+---
+
 ## Maintenance note
 
 If a new percentage, metric, or DSS rule is added anywhere in the app, add an entry
