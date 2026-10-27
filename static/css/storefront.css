@@ -2969,3 +2969,57 @@ body.shop-cart .qty-stepper { margin-top: 6px; }
 .delivery-block .delivery-source { margin-top: 6px; }
 .delivery-block > .field { margin-top: 6px; }
 .delivery-pin [role="status"]:empty { display: none; }
+
+/* SERVICEABLE AREAS ---------------------------------------------------------
+   The "We deliver to:" strip is the last band of the sticky .shop-header, so
+   it follows the shopper down the page. Near-black on amber (about 13:1)
+   because the band above it is brand green: anything softer disappears into
+   the header it sits in. */
+.service-banner {
+  background: #FFD54A; color: #1F1700;
+  border-top: 1px solid #B38600;
+}
+.service-banner-inner {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding-top: 8px; padding-bottom: 8px;
+}
+.service-banner-text { margin: 0; font: 500 14px/1.4 var(--font-sans); }
+.service-banner-link {
+  color: #1F1700; font-weight: 700; text-decoration: underline;
+  white-space: nowrap; margin-left: 6px;
+}
+.service-banner-link:hover { color: #000; }
+.service-banner-link:focus-visible,
+.service-banner-close:focus-visible { outline: 2px solid #1F1700; outline-offset: 2px; }
+.service-banner-dismiss { margin: 0; flex: none; }
+.service-banner-close {
+  appearance: none; background: transparent; border: 0; cursor: pointer;
+  color: #1F1700; font: 700 22px/1 var(--font-sans);
+  min-width: 32px; min-height: 32px; border-radius: 4px;
+}
+.service-banner-close:hover { background: rgba(31, 23, 0, .12); }
+@media (max-width: 640px) {
+  .service-banner-text { font-size: 13px; }
+  .service-banner-link { display: inline-block; margin: 2px 0 0; }
+}
+
+/* Inline notice under the delivery fields on the cart/checkout page. */
+.area-check { display: grid; gap: 8px; margin-top: 6px; }
+.area-check[hidden] { display: none; }
+.area-check .banner { margin: 0; }
+.area-check-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.area-check-note { margin: 0; }
+.delivery-typed-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.delivery-typed-trio .field { margin: 0; }
+.delivery-other { margin-top: 4px; }
+/* The cart's address sits in the narrow order-summary column, where three
+   side-by-side lists cut the place names off ("Angeles Ci…"): stack them. */
+.cart-summary .delivery-typed-trio { grid-template-columns: 1fr; }
+@media (max-width: 640px) {
+  .delivery-typed-trio { grid-template-columns: 1fr; }
+}
+
+/* The public "Where we deliver" page. */
+.areas-branch { display: grid; gap: 10px; }
+.areas-branch + .areas-branch { margin-top: var(--s4, 16px); }
+.areas-excluded { color: var(--ink-700, #444); }

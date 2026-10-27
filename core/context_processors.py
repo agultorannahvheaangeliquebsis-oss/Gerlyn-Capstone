@@ -30,6 +30,8 @@ def input_limits(request):
         "max_barcode": str(limits.MAX_BARCODE_LENGTH),
         "max_description": str(limits.MAX_DESCRIPTION_LENGTH),
         "max_note": str(limits.MAX_NOTE_LENGTH),
+        "max_delivery_fee": str(limits.MAX_DELIVERY_FEE),
+        "max_minimum_order": str(limits.MAX_MINIMUM_ORDER),
     }}
 
 
@@ -137,6 +139,8 @@ _ACTIVE_PAGE_BY_URL_NAME = {
     # Administration
     "branch_list": "branches", "branch_add": "branches",
     "branch_edit": "branches", "branch_delete": "branches",
+    "service_area_list": "service_areas", "service_area_add": "service_areas",
+    "service_area_edit": "service_areas", "service_area_toggle": "service_areas",
     "user_list": "users", "user_add": "users",
     "user_edit": "users", "user_toggle_active": "users",
     "user_hard_delete": "users", "customer_list": "customers",
@@ -406,6 +410,50 @@ def nav_selected_branch(request):
         }
     except Exception:
         return {}
+
+
+SERVICE_BANNER_DISMISSED_KEY = 'service_banner_dismissed'
+
+
+def service_banner(request):
+    """Expose `service_banner` for the storefront's "We deliver to:" strip.
+
+    Lazy: the summary is a database read, and this runs for every render of
+    every page, internal ones included. Only a template that actually asks for
+    `service_banner.configured` (the storefront pages that include the banner)
+    triggers it.
+
+    The strip describes the shopper's own branch when one is chosen, else every
+    active branch. `configured` is False when none of them has any serviceable
+    areas, in which case there is nothing true to say and no strip is drawn.
+    `dismissed` is the per-session "x" (orders.service_area_views); the
+    checkout page ignores it. Fail-safe: a banner must never break a render.
+    """
+    from django.utils.functional import SimpleLazyObject
+
+    def build():
+        empty = {'configured': False, 'summary': '', 'dismissed': False}
+        try:
+            from branches.coverage import banner_summary
+            from branches.models import Branch
+
+            session = getattr(request, 'session', None)
+            branches = Branch.objects.filter(is_active=True)
+            branch_id = session.get('branch_id') if session is not None else None
+            if branch_id:
+                chosen = branches.filter(pk=branch_id)
+                if chosen.exists():
+                    branches = chosen
+            configured, summary = banner_summary(branches)
+            return {
+                'configured': configured,
+                'summary': summary,
+                'dismissed': bool(session is not None and session.get(SERVICE_BANNER_DISMISSED_KEY)),
+            }
+        except Exception:
+            return empty
+
+    return {'service_banner': SimpleLazyObject(build)}
 
 
 def customer_nav(request):

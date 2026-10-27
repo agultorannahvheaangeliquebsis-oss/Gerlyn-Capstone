@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import customer_views, damage_views, receipt_views
+from . import customer_views, damage_views, receipt_views, service_area_views
 
 app_name = 'orders'
 urlpatterns = [
@@ -9,6 +9,15 @@ urlpatterns = [
     path('search/suggest/', customer_views.search_suggestions, name='search_suggestions'),
     path('product/<int:product_id>/', customer_views.product_detail, name='product_detail'),
     path('branch/', customer_views.select_branch, name='select_branch'),
+
+    # Where we deliver (open to guests): the full list, the strip's dismiss,
+    # and the checkout page's live check of an address against it.
+    path('service-areas/', service_area_views.service_areas_page, name='service_areas'),
+    path('service-areas/dismiss/', service_area_views.service_banner_dismiss,
+         name='service_banner_dismiss'),
+    path('checkout/area-check/', service_area_views.area_check, name='area_check'),
+    path('checkout/area-switch/', service_area_views.area_switch_to_pickup,
+         name='area_switch_to_pickup'),
 
     # Cart + checkout (customers only)
     path('add/<int:product_id>/', customer_views.add_to_cart, name='add_to_cart'),

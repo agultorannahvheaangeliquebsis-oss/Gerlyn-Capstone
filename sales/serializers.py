@@ -267,6 +267,14 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
     deliveryContactNumber = serializers.CharField(
         required=False, allow_blank=True, max_length=20
     )
+    # Where the delivery goes, for the branch's serviceable areas
+    # (branches.coverage). Each is a PSGC code or plain words, exactly what the
+    # storefront checkout's dropdowns post. Optional here, but a branch that
+    # has areas configured refuses a delivery that does not name a place it
+    # serves - a free-text deliveryAddress alone cannot be checked.
+    deliveryProvince = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    deliveryCity = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    deliveryBarangay = serializers.CharField(required=False, allow_blank=True, max_length=100)
     # Optional, and an Online order without it is still a Delivery — the only
     # thing this endpoint could create before. 'Pickup' is what makes an
     # Online order eligible for a PWD request, mirroring the storefront's
@@ -508,6 +516,27 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
             priced = price_cart(cart_lines, discount_type=None)
             total = priced['total_amount']
 
+            # Serviceable areas: the same rule the storefront checkout applies
+            # (branches.coverage), run here so the API cannot be used to place
+            # a delivery the branch does not serve. Raised inside the atomic
+            # block, so nothing has been written yet.
+            from accounts.geo import resolve_place
+            from branches.coverage import check_delivery
+
+            delivery_place = resolve_place('', '', '')
+            if (validated_data['transactionType'] == SalesTransaction.TransactionType.ONLINE
+                    and validated_data['fulfillmentType'] == SalesTransaction.FulfillmentType.DELIVERY):
+                delivery_place = resolve_place(
+                    validated_data.get('deliveryProvince', ''),
+                    validated_data.get('deliveryCity', ''),
+                    validated_data.get('deliveryBarangay', ''),
+                )
+                coverage = check_delivery(
+                    Branch.objects.get(pk=branch_id), delivery_place, order_total=total,
+                )
+                if not coverage.ok:
+                    raise serializers.ValidationError({'deliveryAddress': coverage.message})
+
             # X-3 — whoever actually authenticated to create this sale,
             # regardless of role, mirroring sales.views.transaction_add.
             # Null for a Customer (an online order has no staff-side
@@ -537,6 +566,9 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 delivery_latitude=validated_data.get('deliveryLatitude'),
                 delivery_longitude=validated_data.get('deliveryLongitude'),
                 delivery_contact_number=validated_data.get('deliveryContactNumber', ''),
+                delivery_province_code=delivery_place.province_code,
+                delivery_city_code=delivery_place.city_code,
+                delivery_barangay_code=delivery_place.barangay_code,
                 total_amount=total,
                 total_vat_amount=priced['total_vat_amount'],
                 **(new_request_fields(*pwd_request) if pwd_request else {}),

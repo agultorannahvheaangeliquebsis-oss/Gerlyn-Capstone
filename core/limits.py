@@ -48,6 +48,12 @@ MAX_BULK_REFILL_ITEMS = 100
 # Days a supplier needs to deliver.
 MAX_LEAD_TIME_DAYS = 365
 
+# A serviceable area's delivery fee and minimum order (branches.ServiceArea).
+# Both may be zero or blank; neither is a unit price, so MAX_PRICE is not the
+# right ceiling for them.
+MAX_DELIVERY_FEE = Decimal('5000.00')
+MAX_MINIMUM_ORDER = Decimal('100000.00')
+
 MONEY_PLACES = 2
 
 _DECIMAL_TEXT = re.compile(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)\Z')

@@ -36,6 +36,7 @@ from inventory.costing import CostResolver, stamp_sale_item_cost
 from inventory.models import Batch, Inventory, Product, StockMovement
 from audit import context as audit_context
 
+from . import area_override as area_override_service
 from . import receipts as receipt_service
 from . import refunds as refund_service
 from .models import (
@@ -779,6 +780,13 @@ def transaction_detail(request, pk):
         'proof_required_methods': sorted(BillingRecord.PROOF_REQUIRED_METHODS),
         'proof_max_mb': settings.PROOF_OF_PAYMENT_MAX_MB,
         'progress': _order_progress(txn),
+        # The delivery's area and any Owner / Manager override of it. The
+        # override form is drawn only for the roles that may use it;
+        # transaction_area_override re-checks everything on POST.
+        'delivery_area': area_override_service.area_state(txn),
+        'can_override_area': (
+            can_edit_sales and area_override_service.can_override(request.user, txn)
+        ),
         # The delivery / pickup hand-over card: its state, whether to offer the
         # Confirm button, and the receipt links. record_staff_confirmation
         # re-checks all of it on POST.
@@ -1400,6 +1408,17 @@ def transaction_set_status(request, pk, new_status):
                     f'Cannot move {locked_txn.order_number} from '
                     f'{locked_txn.order_status} to {new_status}.'
                 )
+
+            # A delivery whose area the branch has since stopped serving is
+            # not accepted until an Owner / Branch Manager overrides it (with a
+            # reason). Only Approve is held: cancelling it is always open, and
+            # an order whose area was never recorded is not held at all.
+            # Cancelling is how the branch says no to it.
+            if (new_status == SalesTransaction.OrderStatus.APPROVED
+                    and not is_self_cancel):
+                held = area_override_service.approval_block_message(locked_txn)
+                if held:
+                    raise _OrderActionError(held)
 
             # Line items are immutable once an order exists — correcting a
             # mistake means cancelling this one and ringing up a new order,

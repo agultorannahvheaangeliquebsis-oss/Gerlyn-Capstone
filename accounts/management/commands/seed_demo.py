@@ -197,6 +197,10 @@ class Command(BaseCommand):
                 branch_name=name, defaults={"owner": owner, "location": loc},
             )
             branches[name] = b
+        # Placeholder delivery areas (Bulacan, Baliuag) so demo checkouts have a
+        # real list to be checked against; the Owner edits them in Administration.
+        from branches.coverage import seed_default_areas
+        seed_default_areas(branches.values())
         return branches
 
     def _managers(self, branches):

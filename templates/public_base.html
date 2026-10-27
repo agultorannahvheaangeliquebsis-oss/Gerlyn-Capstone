@@ -389,6 +389,12 @@ white-on-white.
       {% endblock %}
     </div>
   </div>
+  {% comment %}
+  Last band of the sticky header, so the delivery notice stays in view while
+  the shopper scrolls. Empty except on the pages that opt in (home, catalog,
+  cart/checkout) - see partials/_service_area_banner.html.
+  {% endcomment %}
+  {% block service_banner %}{% endblock %}
 </header>
 
 <!-- toasts: Django messages plus any raised live by toast.js (e.g. Add to Cart) -->

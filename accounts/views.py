@@ -1164,6 +1164,17 @@ def register_view(request):
         picker_fields['text'] = address
         Address.objects.create(user=user, is_default=True, **picker_fields)
 
+        # One-time notice of where the store delivers. A bell notification
+        # created here (so once per account) plus the same words as a toast
+        # below. Never allowed to fail the sign-up.
+        area_notice = ''
+        try:
+            from orders.service_areas import send_registration_notice
+            area_notice = send_registration_notice(user)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('Registration delivery-area notice failed')
+
         # Verification is optional here (login isn't gated on it — only
         # turning on Two-Factor Authentication is), so a send failure must
         # not block account creation. The user can always retry from the
@@ -1176,6 +1187,8 @@ def register_view(request):
 
         login(request, user)
         messages.success(request, "Account created successfully. Welcome!")
+        if area_notice:
+            messages.info(request, area_notice)
         if verification_sent:
             messages.info(
                 request,

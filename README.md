@@ -159,6 +159,58 @@ status and coordinates under **Administration → Branches** (or Django admin).
 Distance is approximate straight-line distance, not road distance or a
 delivery-time quote; no third-party routing service is used.
 
+### Delivery areas (where each branch delivers)
+
+The Owner decides where each branch delivers under **Administration →
+Delivery Areas**: add, edit, activate and deactivate provinces, municipalities
+and barangays per branch, each with an optional delivery fee, minimum order and
+note. Every change is in the Audit Log. Places are chosen from the bundled PSGC
+lists and matched **by code**, never by spelling (the official name is
+*Baliuag*; *Baliwag* is accepted when typed).
+
+How an address is matched (`branches/coverage.py`, the one place the rule
+lives): the most specific entry for a place decides it. An active province
+covers every municipality and barangay in it; an active municipality covers its
+barangays; an **inactive** barangay or municipality is excluded even inside an
+active province; a place with no entry is outside. A specific entry's fee and
+minimum order replace the broader one's, and a blank value inherits.
+
+- A branch with **no** delivery areas is not restricted (the Delivery Areas
+  page warns about it). Once it has any, only what its active entries cover is
+  delivered to.
+- Migration `branches/0005` and `python manage.py seed_service_areas` give each
+  branch placeholder entries (all of Bulacan, ₱100; Baliuag, ₱50; no minimum
+  order). Existing entries are never changed. Edit them before relying on them.
+- **Storefront:** a sticky "We deliver to…" banner on the home page, catalog
+  and cart/checkout (dismissible for the session, always back at checkout) and a
+  public page, *Where we deliver* (`/shop/service-areas/`). Checkout uses
+  Province → Municipality → Barangay dropdowns (with "Other"), warns inline when
+  the branch does not deliver there and turns off *Place Order*, offering
+  *Switch to Pickup* or *Choose another branch*. A pickup order placed after
+  such a refusal sends the customer an in-app notification. New customers get a
+  one-time notice at registration.
+- **Enforced on the server**, not by the page: `checkout()` and `POST
+  /api/sales/` apply the same rule and refuse an outside delivery or one under
+  the area's minimum order. API clients send `deliveryProvince`,
+  `deliveryCity` and `deliveryBarangay` (PSGC codes or words). The delivery fee
+  is shown to customers but is **not** added to the order total (the cart already
+  says delivery is arranged with the branch).
+- **Older saved addresses:** an address saved as text only (no PSGC codes) can't
+  be checked, so checkout asks the customer to pick the place from the lists.
+  After deploying, run `python manage.py backfill_address_codes --dry-run`, then
+  without `--dry-run`. It reads each address's text strictly by position
+  (`…, barangay, municipality, province`), fills only blank code columns it can
+  prove, never overwrites a code or edits the text, and lists the ids that still
+  need the customer. Safe to re-run.
+- A coordinate pin names no barangay, so the check uses the province,
+  municipality and barangay chosen (the map picker fills them in); a customer
+  who declines location sharing is checked on the same fields.
+- **Order Console:** Order Detail shows the delivery area. If an area is
+  switched off after an order was placed, Approve is held until the Owner or
+  that branch's Manager overrides it on the order with a required reason, which
+  is kept on the order and in the Audit Log. Staff can see the flag and the
+  override but cannot make one. Orders that never recorded an area are not held.
+
 ---
 
 ## Day-to-day: `./run.sh`

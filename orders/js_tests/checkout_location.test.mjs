@@ -30,12 +30,12 @@ class El {
 }
 
 // A checkout page: optionally with a saved address (and optionally a pin on it).
-function boot({ saved = false, savedPin = false, geolocation = 'allow' } = {}) {
+function boot({ saved = false, savedPin = false, geolocation = 'allow', areaScript = true } = {}) {
   const ids = {};
   for (const id of [
     'delivery_location_status', 'delivery_latitude', 'delivery_longitude', 'delivery-coords',
     'delivery-location-feedback', 'delivery-use-location', 'delivery-decline-location',
-    'delivery-pin-on-map', 'delivery_typed_fields', 'addr_street', 'addr_barangay', 'addr_city',
+    'delivery-pin-on-map', 'delivery_typed_fields', 'addr_street',
   ]) ids[id] = new El();
   ids['delivery-coords'].textContent = 'none';
 
@@ -64,6 +64,9 @@ function boot({ saved = false, savedPin = false, geolocation = 'allow' } = {}) {
     };
   }
   const window = { AddressPicker: { open: (options) => { calls.picker = options; } } };
+  // checkout-service-area.js owns the province / municipality / barangay lists
+  // and exposes this for the picker's result.
+  if (areaScript) window.GerlynCheckoutArea = { setPlace: (codes) => { calls.place = codes; } };
   const document = { getElementById: (id) => ids[id] || null };
   vm.runInNewContext(SRC, { document, navigator, window });
   return { ids, block, radios, calls };
@@ -192,21 +195,41 @@ describe('typed address', () => {
 });
 
 describe('Pin on map', () => {
-  it('fills the typed fields and shares the pin only if one was placed', () => {
+  it('fills the street, selects the place by code and shares the pin only if one was placed', () => {
     const page = boot({ saved: true });
     page.ids['delivery-pin-on-map'].click();
     assert.ok(page.calls.picker, 'the shared picker opened');
 
     page.calls.picker.onConfirm(
-      { street_detail: '14 Rizal St.', latitude: '14.951266', longitude: '120.900549' },
+      {
+        street_detail: '14 Rizal St.', latitude: '14.951266', longitude: '120.900549',
+        province: '0314', city: '031403', barangay: '031403014',
+      },
       { barangay: 'Poblacion', city: 'Baliuag' },
     );
 
     assert.equal(page.ids.addr_street.value, '14 Rizal St.');
-    assert.equal(page.ids.addr_barangay.value, 'Poblacion');
-    assert.equal(page.ids.addr_city.value, 'Baliuag');
+    // The province / municipality / barangay lists take PSGC codes, so the
+    // delivery-area check sees a place it can match, not words.
+    // (JSON round trip: the object comes from the vm sandbox's own realm.)
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(page.calls.place)),
+      { province: '0314', city: '031403', barangay: '031403014' },
+    );
     assert.equal(field(page, 'delivery_location_status'), 'granted');
     assert.equal(page.radios.typed.checked, true);
+  });
+
+  it('still works if the place lists are not on the page', () => {
+    const page = boot({ saved: true, areaScript: false });
+    page.ids['delivery-pin-on-map'].click();
+
+    page.calls.picker.onConfirm(
+      { street_detail: '14 Rizal St.', latitude: '14.951266', longitude: '120.900549', province: '0314' },
+      {},
+    );
+
+    assert.equal(field(page, 'delivery_location_status'), 'granted');
   });
 
   it('is skippable: confirming without a pin shares nothing', () => {

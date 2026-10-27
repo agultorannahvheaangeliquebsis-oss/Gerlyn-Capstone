@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import receipt_views, views
+from . import area_views, receipt_views, views
 
 urlpatterns = [
     path('', views.transaction_list, name='transaction_list'),
@@ -31,6 +31,10 @@ urlpatterns = [
     # Delivery order is refused server-side.
     path('<int:pk>/discount/', views.transaction_apply_discount,
          name='transaction_apply_discount'),
+    # Owner / Branch Manager lets a delivery stand although its area is no
+    # longer one the branch serves; a reason is required (sales.area_override).
+    path('<int:pk>/area-override/', area_views.transaction_area_override,
+         name='transaction_area_override'),
     # Approve or reject the customer's PWD discount request at pick-up (P15).
     path('<int:pk>/pwd-request/', views.transaction_pwd_request_review,
          name='transaction_pwd_request_review'),

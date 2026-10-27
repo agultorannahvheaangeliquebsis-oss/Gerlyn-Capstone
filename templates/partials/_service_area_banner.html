@@ -1,0 +1,37 @@
+{% load static %}
+{% comment %}
+The "We deliver to:" strip, sticky with the storefront header (it sits inside
+it). Context: service_banner (core.context_processors.service_banner) and an
+optional `always`.
+
+Drawn on the home page, the catalog and the cart/checkout page, nowhere else.
+The shopper can dismiss it for the session with the x (a POST, so it works
+without JavaScript; static/js/service-banner.js only hides it without a
+reload), but the cart page passes always=True: that is where the answer
+matters, so it is drawn there whatever was dismissed, and without an x.
+
+Nothing is drawn while no branch has any serviceable areas configured: there
+is no list to state and an unconfigured branch delivers anywhere.
+{% endcomment %}
+{% if service_banner.configured and always or service_banner.configured and not service_banner.dismissed %}
+<div class="service-banner" role="region" aria-label="Where we deliver" data-service-banner>
+  <div class="shop-wrap service-banner-inner">
+    <p class="service-banner-text">
+      {% if service_banner.summary %}
+        <strong>We deliver to:</strong> {{ service_banner.summary }}. Outside these areas? <strong>Choose Pickup.</strong>
+      {% else %}
+        <strong>Delivery isn’t available right now.</strong> You can still <strong>choose Pickup</strong> at the branch.
+      {% endif %}
+      <a class="service-banner-link" href="{% url 'orders:service_areas' %}">View all serviceable areas</a>
+    </p>
+    {% if not always %}
+    <form method="post" action="{% url 'orders:service_banner_dismiss' %}" class="service-banner-dismiss" data-service-banner-dismiss>
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" class="service-banner-close" aria-label="Dismiss the delivery areas notice for this visit">&times;</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if not always %}<script src="{% static 'js/service-banner.js' %}?v={{ APP_VERSION }}" defer></script>{% endif %}
+</div>
+{% endif %}

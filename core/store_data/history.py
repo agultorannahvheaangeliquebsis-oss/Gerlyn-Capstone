@@ -203,6 +203,11 @@ class Builder:
         for name in C.BRANCH_PROFILE:
             if not Branch.objects.filter(branch_name=name).exists():
                 Branch.objects.create(owner=owner, branch_name=name, location=name)
+        # Each branch ships delivering within Bulacan / Baliuag (placeholder
+        # fees the Owner edits under Administration > Delivery Areas). A row
+        # that already exists is never touched.
+        from branches.coverage import seed_default_areas
+        seed_default_areas()
         for username, name, cat, person, phone in C.EXISTING_SUPPLIER_DEFS:
             u, made = User.objects.get_or_create(
                 username=username, defaults={

@@ -12,6 +12,17 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.41.0',
+        'date': '2026-10-27',
+        'changes': [
+            'A "We deliver to" notice now stays at the top of the home page, the catalog and the cart, with a link to the full list of areas (and each branch\'s delivery fee and minimum order). You can dismiss it while browsing; it comes back at checkout',
+            'Checkout asks for your province, municipality and barangay from lists, and tells you straight away if the branch does not deliver there. You can then switch the order to pickup or choose another branch, and we confirm a pickup switch in your notifications',
+            'New customers get a one-time note about where we deliver',
+            {'text': 'New Delivery Areas page (Administration): the Owner adds, edits, activates and deactivates the provinces, municipalities and barangays each branch delivers to, with an optional delivery fee and minimum order. A province covers everything inside it; a deactivated barangay or municipality is left out. Every change is in the Audit Log', 'internal': True},
+            {'text': 'Order Detail shows the delivery area, and the Order Console list flags overridden orders. If an area is switched off after an order was placed, Approve is held until the Owner or that branch\'s Manager overrides it with a reason (kept on the order and in the Audit Log)', 'internal': True},
+        ],
+    },
+    {
         'version': '1.40.0',
         'date': '2026-10-27',
         'changes': [

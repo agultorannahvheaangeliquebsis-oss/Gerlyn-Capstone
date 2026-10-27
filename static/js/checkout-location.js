@@ -128,8 +128,6 @@
     mapButton.addEventListener('click', function () {
       if (!window.AddressPicker) return;
       var street = document.getElementById('addr_street');
-      var barangay = document.getElementById('addr_barangay');
-      var city = document.getElementById('addr_city');
       window.AddressPicker.open({
         title: 'Pin your delivery address',
         showType: false,
@@ -138,8 +136,14 @@
           var typed = block.querySelector('input[name="address_source"][value="typed"]');
           if (typed) typed.checked = true;
           if (street && values.street_detail) street.value = values.street_detail;
-          if (barangay && labels && labels.barangay) barangay.value = labels.barangay;
-          if (city && labels && labels.city) city.value = labels.city;
+          // Province, municipality and barangay are dropdowns now; the picker
+          // hands back their PSGC codes, which checkout-service-area.js
+          // selects (and then checks against the branch's delivery areas).
+          if (window.GerlynCheckoutArea) {
+            window.GerlynCheckoutArea.setPlace({
+              province: values.province, city: values.city, barangay: values.barangay
+            });
+          }
           if (values.latitude && values.longitude) {
             sharePin(values.latitude, values.longitude);
             say('Pin placed for this delivery only. You can still change the address above.');

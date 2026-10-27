@@ -1,0 +1,71 @@
+{% extends "public_base.html" %}
+{% block title %}Where we deliver — GERLYN{% endblock %}
+{% block body_class %}shop shop-service-areas{% endblock %}
+
+{% block content %}
+<div class="shop-wrap section">
+  <div class="section-head">
+    <div>
+      <h2>Where we deliver</h2>
+      <p class="gv-meta mb-0">
+        Each branch delivers to the places listed under it. Anywhere else,
+        choose <strong>Pickup</strong> at checkout and collect your order at the branch.
+      </p>
+    </div>
+    {% if back_url %}<a class="btn" href="{{ back_url }}">Back</a>{% else %}<a class="btn" href="{% url 'orders:catalog' %}">Browse products</a>{% endif %}
+  </div>
+
+  {% for group in listing %}
+  <section class="card card-pad areas-branch" aria-labelledby="areas-{{ group.branch.pk }}">
+    <h3 id="areas-{{ group.branch.pk }}">{{ group.branch.branch_name }}</h3>
+
+    {% if group.areas %}
+    <div class="table-wrap">
+      <table class="gv-table">
+        <thead>
+          <tr><th>Area</th><th>Type</th><th>Delivery fee</th><th>Minimum order</th></tr>
+        </thead>
+        <tbody>
+          {% for row in group.areas %}
+          <tr>
+            <td data-label="Area">
+              <strong>{{ row.name }}</strong>{% if row.type == 'Province' %} <span class="gv-meta">— every municipality and barangay in it</span>{% elif row.type == 'Municipality' %} <span class="gv-meta">— every barangay in it</span>{% endif %}
+              {% if row.parent %}<div class="gv-meta">{{ row.parent }}</div>{% endif %}
+              {% if row.notes %}<div class="gv-meta">{{ row.notes }}</div>{% endif %}
+            </td>
+            <td data-label="Type">{{ row.type }}</td>
+            <td data-label="Delivery fee">{% if row.delivery_fee is None %}Arranged with the branch{% elif row.delivery_fee == 0 %}Free{% else %}₱{{ row.delivery_fee|floatformat:2 }}{% endif %}</td>
+            <td data-label="Minimum order">{% if row.minimum_order is None or row.minimum_order == 0 %}None{% else %}₱{{ row.minimum_order|floatformat:2 }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="gv-meta mb-0">This branch isn’t delivering anywhere right now. Choose Pickup.</p>
+    {% endif %}
+
+    {% if group.excluded %}
+    <p class="gv-meta areas-excluded mb-0">
+      <strong>Not delivered to:</strong>
+      {% for row in group.excluded %}{{ row.name }}{% if row.parent %} ({{ row.parent }}){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}.
+    </p>
+    {% endif %}
+  </section>
+  {% empty %}
+  <div class="card">
+    <div class="empty">
+      <h3>Delivery areas haven’t been published yet</h3>
+      <p>Ask the branch where it delivers, or choose Pickup at checkout.</p>
+      <a class="btn btn-primary mt-2" href="{% url 'orders:catalog' %}">Browse products</a>
+    </div>
+  </div>
+  {% endfor %}
+
+  <p class="gv-meta">
+    Delivery fees are arranged with the branch when it confirms your order; they
+    are not added to the total shown at checkout. A minimum order, where one is
+    listed, is checked when you place a delivery order.
+  </p>
+</div>
+{% endblock %}

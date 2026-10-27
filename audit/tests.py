@@ -15,7 +15,7 @@ from django.utils import timezone
 from accounts.models import Address, User
 from accounts.services import hard_delete_personal_data
 from audit import triggers
-from audit.context import suppressed
+from audit.context import set_action_label, suppressed
 from audit.models import AppendOnlyError, AuditLog
 from audit.registry import GLOBAL_EXCLUDE, REGISTRY
 from backups.models import BackupRun, RestoreTestRecord
@@ -475,6 +475,12 @@ class RegistryTests(TestCase):
 
 class AuditLogViewTests(TestCase):
     def setUp(self):
+        # The action label is a module-level ContextVar. A test that calls a
+        # service which sets one outside a request (the floor-refill and
+        # transfer tests do) leaves it behind, and every row written by the
+        # next test would then read as that action instead of "Created Branch
+        # Tarcan". Start from none so these tests do not depend on run order.
+        set_action_label('')
         self.owner = User.objects.create_user(
             username='view-owner', password='pw', role=User.Role.OWNER
         )

@@ -78,6 +78,9 @@ REGISTRY = {
     ),
     # --- branches ------------------------------------------------------------
     'branches.Branch': AuditConfig('Branch', repr_field='branch_name', branch_path='id'),
+    # Which places a branch delivers to. Every add, edit, activate and
+    # deactivate is a field diff on the row, named by the place it covers.
+    'branches.ServiceArea': AuditConfig('Service area', repr_field='area_name'),
     # --- inventory -----------------------------------------------------------
     'inventory.ProductCategory': AuditConfig(
         'Category', repr_field='category_name', branch_path='',

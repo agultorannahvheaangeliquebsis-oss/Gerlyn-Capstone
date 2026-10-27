@@ -179,6 +179,27 @@ class SalesTransaction(models.Model):
         help_text="Who the rider calls. Blank for Pickup and walk-in sales."
     )
 
+    # Where a delivery goes, as PSGC codes (accounts/data/ph_addresses), so the
+    # branch's serviceable areas (branches.coverage) can be checked again later
+    # without parsing delivery_address. Blank for Pickup and walk-in sales, and
+    # for a delivery placed before service areas existed or at a branch that
+    # had none configured and no place chosen: those read as "area not
+    # recorded", never as outside.
+    delivery_province_code = models.CharField(max_length=10, blank=True)
+    delivery_city_code = models.CharField(max_length=10, blank=True)
+    delivery_barangay_code = models.CharField(max_length=15, blank=True)
+
+    # An Owner / Branch Manager's decision to let a delivery stand although its
+    # area is not one the branch serves (sales.area_override). The reason is
+    # required and the change is in the Audit Log; an order with these set is
+    # flagged in the Order Console.
+    area_override_reason = models.CharField(max_length=255, blank=True)
+    area_override_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='area_overrides',
+    )
+    area_override_at = models.DateTimeField(null=True, blank=True)
+
     # Line items are immutable once an order exists — there is no view that
     # edits an existing SalesItem, by design. Correcting a mistake means
     # cancelling this order (with a reason, so the record says why) and
@@ -413,6 +434,27 @@ class SalesTransaction(models.Model):
             f'mlat={self.delivery_latitude}&mlon={self.delivery_longitude}'
             f'#map=18/{self.delivery_latitude}/{self.delivery_longitude}'
         )
+
+    @property
+    def has_area_override(self):
+        return self.area_override_at is not None
+
+    @property
+    def delivery_place(self):
+        """The delivery's place as a ``geo.Place`` (codes only; empty when the
+        order recorded none)."""
+        from accounts.geo import Place
+
+        return Place(
+            province_code=self.delivery_province_code,
+            city_code=self.delivery_city_code,
+            barangay_code=self.delivery_barangay_code,
+        )
+
+    @property
+    def delivery_area_label(self):
+        """"Brgy. Poblacion, Baliuag, Bulacan", or '' when no area was recorded."""
+        return self.delivery_place.label()
 
     @property
     def has_pending_pwd_request(self):

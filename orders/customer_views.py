@@ -18,6 +18,7 @@ from django.urls import reverse
 from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from accounts import geo
 from branches.models import Branch
 from core.limits import MAX_QUANTITY
 from core.pagination import paginate
@@ -34,7 +35,12 @@ from sales.pwd_requests import (
     new_request_fields, notify_pwd_request_submitted, request_can_reach_cart,
     validate_pwd_details,
 )
+from branches import coverage as service_coverage
 from .delivery import clean_delivery_form, contact_number_on_file, draft_from_post
+from .service_areas import (
+    SWITCH_HELP, area_message, notify_pickup_switch, pop_area_switch,
+    remember_area_block, uses_saved_address,
+)
 from .services import (
     branch_options,
     clear_manual_branch,
@@ -279,10 +285,22 @@ def _save_typed_address(user, delivery):
     snapshot unambiguously, so the saved row ranks branches the same way one
     made with the address picker does. The first address becomes the default.
     """
-    from accounts.geo import match_places
+    from accounts.geo import match_places, region_of_province
     from accounts.models import Address
 
-    codes = match_places(delivery.typed_city, delivery.typed_barangay)
+    place = delivery.place
+    if place.city_code:
+        # The dropdowns (or a municipality that matched unambiguously) already
+        # pinned this to the PSGC list; no second guess from the words.
+        codes = {
+            'region': region_of_province(place.province_code),
+            'province': place.province_code,
+            'city': place.city_code,
+        }
+        if place.barangay_code:
+            codes['barangay'] = place.barangay_code
+    else:
+        codes = match_places(delivery.typed_city, delivery.typed_barangay)
     Address.objects.create(
         user=user,
         is_default=not user.addresses.exists(),
@@ -1356,6 +1374,9 @@ def view_cart(request):
         # checkout() re-reads the saved row rather than trusting the form.
         'default_address': request.user.addresses.filter(is_default=True).first(),
         'contact_number_on_file': contact_number_on_file(request.user),
+        # Province list for the delivery address's dependent dropdowns; the
+        # municipality and barangay lists load from the PSGC endpoints.
+        'provinces': geo.all_provinces(),
         'draft': request.session.pop('checkout_draft', None) or {},
         'payment_choices': [
             ('Cash on Delivery', 'Cash on Delivery'),
@@ -1451,7 +1472,7 @@ def checkout(request):
     # same helper) was still sitting in request.session['cart'], and checkout
     # met it here for the first time — rejecting a product the shopper could
     # no longer even see, for a total that didn't match what was on screen.
-    _, _, dropped_items = _cart_items(request)
+    _, cart_total, dropped_items = _cart_items(request)
     if dropped_items:
         messages.error(
             request,
@@ -1586,14 +1607,39 @@ def checkout(request):
     # coordinates are only read when the form says the shopper shared them.
     delivery = None
     if fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY:
+        saved_address = request.user.addresses.filter(is_default=True).first()
         delivery, delivery_errors = clean_delivery_form(
-            request.POST, request.user,
-            request.user.addresses.filter(is_default=True).first(),
+            request.POST, request.user, saved_address,
         )
         if delivery_errors:
             for error in delivery_errors:
                 messages.error(request, error)
             # Keep what they typed (never a coordinate) for the redisplayed form.
+            request.session['checkout_draft'] = draft_from_post(request.POST)
+            return redirect('orders:cart')
+
+        # --- serviceable areas ----------------------------------------------
+        # The branch's own list of places it delivers to (branches.coverage) is
+        # checked here, on the server, whatever the page showed: the checkout
+        # page's live check is advice, this is the rule. A branch with no areas
+        # configured is not restricted. The place is the province /
+        # municipality / barangay chosen (or the saved address's); a pin alone
+        # names no barangay, so it cannot satisfy this on its own.
+        #
+        # Refused orders keep the typed fields, and remember that the shopper
+        # was stopped by the address (not by the order size) so that placing the
+        # same cart as Pickup can be confirmed to them in the app.
+        coverage = service_coverage.check_delivery(
+            resolution.branch, delivery.place, order_total=cart_total,
+        )
+        if not coverage.ok:
+            said = area_message(
+                coverage, saved=uses_saved_address(request.POST, saved_address))
+            if not coverage.covered:
+                remember_area_block(request.session, resolution.branch, coverage)
+                messages.error(request, f'{said} {SWITCH_HELP}')
+            else:
+                messages.error(request, said)
             request.session['checkout_draft'] = draft_from_post(request.POST)
             return redirect('orders:cart')
 
@@ -1769,6 +1815,11 @@ def checkout(request):
             delivery_latitude=delivery.latitude if delivery else None,
             delivery_longitude=delivery.longitude if delivery else None,
             delivery_contact_number=delivery.contact_number if delivery else '',
+            # The place the area check passed, as PSGC codes (blank when it
+            # could not be pinned down, e.g. a branch with no areas set).
+            delivery_province_code=delivery.place.province_code if delivery else '',
+            delivery_city_code=delivery.place.city_code if delivery else '',
+            delivery_barangay_code=delivery.place.barangay_code if delivery else '',
             # Priced up front and written on the INSERT itself — the same
             # order sales.views.transaction_add and the DRF write serializer
             # already use. This used to create at the model's total_amount=0
@@ -1817,7 +1868,18 @@ def checkout(request):
     request.session.pop('checkout_draft', None)
     if delivery and delivery.save_typed_address:
         _save_typed_address(request.user, delivery)
+    # An order placed after being stopped by the delivery area is the pickup
+    # switch: confirm it in the app. (Always cleared, so a stale block never
+    # attaches to a later order.)
+    area_switch = pop_area_switch(request.session, branch_id)
     messages.success(request, f'Order {sale.order_number} placed!')
+    if area_switch and fulfillment_type == SalesTransaction.FulfillmentType.PICKUP:
+        notify_pickup_switch(request.user, sale, area_switch)
+        messages.info(
+            request,
+            f'{area_switch.get("place") or "That address"} is outside our delivery '
+            f'areas, so this order is for pickup at {sale.branch.branch_name}.',
+        )
     if pwd_request:
         messages.info(
             request,

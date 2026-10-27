@@ -106,7 +106,17 @@ class AcceptanceTests(TestCase):
         # checkout() ships a Delivery order to the account's saved default
         # Address now — it no longer reads a typed delivery_address field —
         # so a Delivery checkout needs one on record first.
-        Address.objects.create(user=juan, is_default=True, text='Baliuag')
+        #
+        # The demo branches deliver within Bulacan (seed_demo), and an address
+        # can only be checked against that when it carries PSGC codes, as one
+        # made with the address picker does - free text alone is refused.
+        from accounts.geo import resolve_place
+        place = resolve_place('Bulacan', 'Baliuag', 'Poblacion')
+        Address.objects.create(
+            user=juan, is_default=True, text='Brgy. Poblacion, Baliuag, Bulacan',
+            province=place.province_code, city=place.city_code,
+            barangay=place.barangay_code,
+        )
 
         customer = self.login('juan')
         session = customer.session

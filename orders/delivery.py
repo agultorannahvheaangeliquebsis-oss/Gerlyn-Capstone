@@ -22,6 +22,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 
+from accounts.geo import OTHER, Place, resolve_place
 from accounts.geocoding import parse_coordinates
 from accounts.validators import validate_ph_mobile_number
 from core.limits import parse_text
@@ -61,6 +62,11 @@ class DeliveryDetails:
     typed_street: str = ''
     typed_barangay: str = ''
     typed_city: str = ''
+    # The province / municipality / barangay the delivery goes to, pinned to
+    # the PSGC list where it could be. This is what a branch's serviceable
+    # areas are checked against (branches.coverage); the address text is for
+    # the rider.
+    place: Place = Place()
 
     @property
     def has_pin(self):
@@ -110,15 +116,31 @@ def _clean_contact(post, user):
     return raw, None
 
 
-def compose_typed_address(street, barangay, city, landmark=''):
+def compose_typed_address(street, barangay, city, landmark='', province=''):
     parts = [street]
     if barangay:
         parts.append(barangay if _BARANGAY_PREFIX.match(barangay) else f'Brgy. {barangay}')
     parts.append(city)
+    parts.append(province)
     text = ', '.join(part for part in parts if part)
     if landmark:
         text = f'{text} (Landmark: {landmark})' if text else f'Landmark: {landmark}'
     return text
+
+
+def _place_input(post, name):
+    """What the shopper gave for one place level: the dropdown's PSGC code, or
+    the words typed under "Other" (``<name>_other``), or plain words from a
+    client that has no dropdown."""
+    raw = (post.get(name) or '').strip()
+    if raw == OTHER:
+        raw = (post.get(f'{name}_other') or '').strip()
+    return raw
+
+
+def _shown(raw, resolved_name):
+    """The shopper's own words win; a PSGC code is shown as its name."""
+    return resolved_name if raw.isdigit() and resolved_name else raw
 
 
 def clean_delivery_form(post, user, saved_address):
@@ -150,24 +172,40 @@ def clean_delivery_form(post, user, saved_address):
             and saved_address.longitude is not None
         ):
             pin = (round_pin(saved_address.latitude), round_pin(saved_address.longitude))
-        details_extra = {}
+        # Saved addresses made with the address picker carry PSGC codes; an
+        # older free-typed one has none and reads as an unrecognised place.
+        details_extra = {'place': resolve_place(
+            saved_address.province, saved_address.city, saved_address.barangay,
+        )}
     else:
         street, e1 = parse_text(post.get('addr_street'), 'Street', max_length=MAX_STREET_LENGTH)
-        barangay, e2 = parse_text(post.get('addr_barangay'), 'Barangay', max_length=MAX_PLACE_LENGTH)
-        city, e3 = parse_text(post.get('addr_city'), 'Municipality', max_length=MAX_PLACE_LENGTH)
+        barangay, e2 = parse_text(
+            _place_input(post, 'addr_barangay'), 'Barangay', max_length=MAX_PLACE_LENGTH)
+        city, e3 = parse_text(
+            _place_input(post, 'addr_city'), 'Municipality', max_length=MAX_PLACE_LENGTH)
+        province, e5 = parse_text(
+            _place_input(post, 'addr_province'), 'Province', max_length=MAX_PLACE_LENGTH)
         landmark, e4 = parse_text(post.get('addr_landmark'), 'Landmark', max_length=MAX_LANDMARK_LENGTH)
-        errors.extend(e for e in (e1, e2, e3, e4) if e)
+        errors.extend(e for e in (e1, e2, e3, e4, e5) if e)
         pin = shared
-        if not (street and barangay and city) and pin is None and not (e1 or e2 or e3 or e4):
+        if not (street and barangay and city) and pin is None and not (e1 or e2 or e3 or e4 or e5):
             errors.append(INCOMPLETE_ADDRESS)
-        address = compose_typed_address(street, barangay, city, landmark)
+        place = resolve_place(province, city, barangay)
+        address = compose_typed_address(
+            street,
+            _shown(barangay, place.barangay_name),
+            _shown(city, place.city_name),
+            landmark,
+            province=_shown(province, place.province_name),
+        )
         if not address and pin is not None:
             address = f'Pinned location ({pin[0]}, {pin[1]})'
         details_extra = {
             'save_typed_address': bool(post.get('addr_save')) and bool(street and barangay and city),
             'typed_street': street,
-            'typed_barangay': barangay,
-            'typed_city': city,
+            'typed_barangay': _shown(barangay, place.barangay_name),
+            'typed_city': _shown(city, place.city_name),
+            'place': place,
         }
 
     if len(address) > MAX_ADDRESS_LENGTH:
@@ -186,6 +224,7 @@ def clean_delivery_form(post, user, saved_address):
 def draft_from_post(post):
     """The typed (non-location) checkout fields, kept in the session when a
     submit is refused so the shopper does not retype them. No coordinates."""
-    keys = ('address_source', 'addr_street', 'addr_barangay', 'addr_city',
+    keys = ('address_source', 'addr_street', 'addr_province', 'addr_province_other',
+            'addr_city', 'addr_city_other', 'addr_barangay', 'addr_barangay_other',
             'addr_landmark', 'addr_contact', 'addr_save')
     return {key: post.get(key, '') for key in keys if post.get(key)}

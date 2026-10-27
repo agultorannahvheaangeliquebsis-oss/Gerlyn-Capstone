@@ -624,6 +624,7 @@ page already open behind this overlay — Order Details is unaffected by that.
         {% if transaction.delivery_address %}
         <div class="wide"><dt>Deliver to</dt><dd>{{ transaction.delivery_address }}{% include "partials/_delivery_location.html" with txn=transaction %}</dd></div>
         {% endif %}
+        {% if delivery_area.applies %}{% include "sales/_delivery_area.html" %}{% endif %}
         {% comment %}
         The statutory-discount record. Shown only when a claim was made — the
         ID is what makes the discount defensible if it is ever questioned, so

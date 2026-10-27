@@ -146,6 +146,8 @@ whichever branch the toolbar is actually narrowed to.{% endcomment %}
         <td data-label="Branch">{{ t.branch.branch_name }}</td>
         <td data-label="Fulfilment">
           {% if t.fulfillment_type == "Delivery" %}<span class="tag">Delivery</span>
+            {% if t.has_area_override %}<span class="pill pill-warn" data-area-flag="overridden" title="An Owner or Branch Manager overrode this order’s delivery area">Area override</span>{% endif %}
+            {% if t.delivery_area_label %}<div class="gv-meta" data-delivery-area-label>{{ t.delivery_area_label }}</div>{% endif %}
           {% else %}<span class="tag">Pickup</span>{% endif %}
         </td>
         <td data-label="Total" class="num strong">₱{{ t.total_amount|floatformat:2 }}</td>

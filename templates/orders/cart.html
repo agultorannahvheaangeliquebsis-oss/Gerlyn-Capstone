@@ -25,6 +25,12 @@ checkout's "Pin on map" step reuses.
 <link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
 {% endblock %}
 
+{% comment %}
+The cart page IS the checkout (the form lives here), so the delivery notice is
+always drawn, whatever the shopper dismissed while browsing.
+{% endcomment %}
+{% block service_banner %}{% include "partials/_service_area_banner.html" with always=True %}{% endblock %}
+
 {% block content %}
 <div class="shop-wrap section">
   {% comment %}
@@ -248,14 +254,53 @@ checkout's "Pin on map" step reuses.
               <label for="addr_street">Street, building, house no.</label>
               <input id="addr_street" type="text" name="addr_street" maxlength="255" autocomplete="street-address" value="{{ draft.addr_street }}">
             </div>
-            <div class="delivery-typed-pair">
+            {% comment %}
+            Province -> municipality -> barangay, each list depending on the
+            one before, so what is posted is a PSGC code the branch's
+            serviceable areas can be matched against (branches.coverage) and
+            not a spelling. "Other" is the way out for a place that is not in
+            the list: its words are typed in the box under it and checked by
+            name on the server. static/js/checkout-service-area.js fills the
+            municipality and barangay lists; without JavaScript only "Other"
+            is offered for those two and the text boxes stay open.
+            {% endcomment %}
+            <div class="delivery-typed-trio" id="delivery_place"
+                 data-cities-url="{% url 'accounts:geo_cities' %}"
+                 data-barangays-url="{% url 'accounts:geo_barangays' %}"
+                 data-check-url="{% url 'orders:area_check' %}"
+                 data-switch-url="{% url 'orders:area_switch_to_pickup' %}"
+                 data-draft-province="{{ draft.addr_province }}"
+                 data-draft-city="{{ draft.addr_city }}"
+                 data-draft-barangay="{{ draft.addr_barangay }}">
               <div class="field">
-                <label for="addr_barangay">Barangay</label>
-                <input id="addr_barangay" type="text" name="addr_barangay" maxlength="100" value="{{ draft.addr_barangay }}">
+                <label for="addr_province">Province</label>
+                <select id="addr_province" name="addr_province" autocomplete="address-level1">
+                  <option value="">Select province…</option>
+                  {% for province in provinces %}
+                  <option value="{{ province.code }}" {% if draft.addr_province == province.code %}selected{% endif %}>{{ province.name }}</option>
+                  {% endfor %}
+                  <option value="__other__" {% if draft.addr_province == '__other__' %}selected{% endif %}>Other…</option>
+                </select>
+                <input class="delivery-other" id="addr_province_other" type="text" name="addr_province_other" maxlength="100"
+                       placeholder="Type your province" aria-label="Province, if not in the list" value="{{ draft.addr_province_other }}">
               </div>
               <div class="field">
                 <label for="addr_city">Municipality</label>
-                <input id="addr_city" type="text" name="addr_city" maxlength="100" value="{{ draft.addr_city }}">
+                <select id="addr_city" name="addr_city" autocomplete="address-level2">
+                  <option value="">Select municipality…</option>
+                  <option value="__other__" {% if draft.addr_city == '__other__' or draft.addr_city and not draft.addr_province %}selected{% endif %}>Other…</option>
+                </select>
+                <input class="delivery-other" id="addr_city_other" type="text" name="addr_city_other" maxlength="100"
+                       placeholder="Type your municipality" aria-label="Municipality, if not in the list" value="{{ draft.addr_city_other }}">
+              </div>
+              <div class="field">
+                <label for="addr_barangay">Barangay</label>
+                <select id="addr_barangay" name="addr_barangay">
+                  <option value="">Select barangay…</option>
+                  <option value="__other__" {% if draft.addr_barangay == '__other__' or draft.addr_barangay and not draft.addr_province %}selected{% endif %}>Other…</option>
+                </select>
+                <input class="delivery-other" id="addr_barangay_other" type="text" name="addr_barangay_other" maxlength="100"
+                       placeholder="Type your barangay" aria-label="Barangay, if not in the list" value="{{ draft.addr_barangay_other }}">
               </div>
             </div>
             <div class="field">
@@ -266,6 +311,22 @@ checkout's "Pin on map" step reuses.
               <input type="checkbox" name="addr_save" value="1" {% if draft.addr_save or not default_address.text %}checked{% endif %}>
               Also save this to my addresses (the pin is never saved to your account)
             </label>
+          </div>
+
+          {% comment %}
+          The answer to "do we deliver there?", for whichever address is in use
+          (saved or typed). Filled by checkout-service-area.js from the live
+          check; the server runs the same rule again on submit, so this only
+          warns early. role="status" so a screen reader hears the change.
+          {% endcomment %}
+          <div class="area-check" id="area-check" hidden>
+            <div class="banner" id="area-check-banner" role="status" aria-live="polite"></div>
+            <p class="gv-meta area-check-note" id="area-check-others" hidden></p>
+            <div class="area-check-actions" id="area-check-actions" hidden>
+              <button type="button" class="btn btn-sm btn-primary" id="area-switch-pickup">Switch to Pickup</button>
+              <a class="btn btn-sm" id="area-choose-branch"
+                 href="{% url 'orders:select_branch' %}?mode=manual&amp;next={% url 'orders:cart' %}">Choose another branch</a>
+            </div>
           </div>
 
           <div class="field">
@@ -398,6 +459,7 @@ Delivery, independent of anything this script does.
 {% if items %}
 {% include "accounts/_address_picker_modal.html" %}
 <script src="{% static 'js/address-picker.js' %}?v={{ APP_VERSION }}"></script>
+<script src="{% static 'js/checkout-service-area.js' %}?v={{ APP_VERSION }}"></script>
 <script src="{% static 'js/checkout-location.js' %}?v={{ APP_VERSION }}"></script>
 {% endif %}
 <script>
@@ -529,7 +591,10 @@ second request at all. Same pattern as login.html's submit button.
       if (!e.persisted) return;
       btn.disabled = false;
       btn.removeAttribute('aria-busy');
-      if (label) label.textContent = 'Place Order';
+      // The label follows the fulfillment choice (checkout-service-area.js
+      // keeps data-default-label current), and the delivery-area check may
+      // want the button off again; it re-runs on this same event.
+      if (label) label.textContent = btn.getAttribute('data-default-label') || 'Place Order';
     });
   })();
 </script>

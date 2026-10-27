@@ -1,0 +1,54 @@
+{% comment %}
+The delivery area row of an online Delivery order, for Staff, Branch Managers
+and the Owner: the province / municipality / barangay the order recorded, whether
+the branch still serves it, and any Owner / Manager override.
+
+Context: transaction, delivery_area (sales.area_override.area_state),
+can_override_area. The override form is drawn only for the roles that may use
+it; sales.area_override re-checks everything on POST. Staff see the flag and
+the override but never the form.
+{% endcomment %}
+<div class="wide" data-delivery-area>
+  <dt>Delivery area</dt>
+  <dd>
+    {% if delivery_area.recorded %}
+      {{ delivery_area.label }}
+      {% if delivery_area.overridden %}
+        <span class="pill pill-warn" data-area-flag="overridden">Area override</span>
+      {% elif delivery_area.outside %}
+        <span class="pill pill-danger" data-area-flag="outside">Outside delivery areas</span>
+      {% else %}
+        <span class="pill pill-ok" data-area-flag="covered">In a delivery area</span>
+      {% endif %}
+      {% if delivery_area.coverage.delivery_fee is not None %}
+        <div class="gv-meta">Area delivery fee ₱{{ delivery_area.coverage.delivery_fee|floatformat:2 }} — arranged with the customer, not on the order total.</div>
+      {% endif %}
+    {% else %}
+      <span class="gv-meta" data-area-flag="not-recorded">Area not recorded</span>
+    {% endif %}
+
+    {% if delivery_area.overridden %}
+      <div class="gv-meta" data-area-override>
+        Overridden by
+        <strong>{{ transaction.area_override_by.get_full_name|default:transaction.area_override_by.username|default:"a removed account" }}</strong>
+        on {{ transaction.area_override_at|date:"M j, Y g:i A" }}:
+        “{{ transaction.area_override_reason }}”
+      </div>
+    {% elif delivery_area.outside %}
+      <div class="banner banner-warning" data-area-held>
+        {{ transaction.branch.branch_name }} no longer delivers to this area.
+        {% if transaction.order_status == 'Pending' %}It can’t be approved until an Owner or Branch Manager overrides the delivery area, or it is cancelled.{% endif %}
+      </div>
+      {% if can_override_area and delivery_area.can_be_overridden %}
+      <form method="post" action="{% url 'transaction_area_override' transaction.pk %}" class="stack" data-area-override-form>
+        {% csrf_token %}
+        <label for="override_reason" class="gv-meta">Reason for the override <span class="gv-meta">— required, kept on the order and in the Audit Log</span></label>
+        <input id="override_reason" type="text" name="override_reason" required minlength="8" maxlength="255" autocomplete="off">
+        <button type="submit" class="btn btn-sm">Override delivery area</button>
+      </form>
+      {% elif delivery_area.can_be_overridden %}
+      <div class="gv-meta">Only the Owner or a Branch Manager can override this.</div>
+      {% endif %}
+    {% endif %}
+  </dd>
+</div>
