@@ -436,6 +436,12 @@ class Builder:
             floor_price = min([p for _, p in tiers] + [retail])
             base = min(retail * margin[cat], floor_price * 0.93)
             self.cost[sku] = _peso(base)
+            # The same figure the suppliers' catalogs and purchase orders use,
+            # so the opening-balance lots (no purchase order behind them) are
+            # costed like everything restocked afterwards.
+            if product.cost_price != self.cost[sku]:
+                product.cost_price = self.cost[sku]
+                product.save(update_fields=["cost_price"])
             if self.with_images:
                 ProductImage.objects.filter(product=product).delete()
                 img = ProductImage(product=product, alt_text=f"{name} product photo", is_primary=True)

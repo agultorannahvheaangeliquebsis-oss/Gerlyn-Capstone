@@ -504,6 +504,17 @@ class SalesItem(models.Model):
     subtotal = models.DecimalField(
         max_digits=12, decimal_places=2, editable=False
     )
+    # What one unit of this line cost the store, frozen when the stock left the
+    # shelf (sales.views._deduct_stock) so a later price change never rewrites
+    # the profit on a sale that already happened. When the line drew from
+    # several batches this is their quantity-weighted average. Four places, not
+    # two: the average of two lots rarely lands on a centavo. Null means the
+    # cost was not known at the time -- never "free" -- and the Profitability
+    # report flags those lines instead of counting them as zero cost.
+    unit_cost = models.DecimalField(
+        max_digits=12, decimal_places=4, null=True, blank=True, editable=False,
+        help_text="Cost of one unit when this line was sold; null if unknown."
+    )
 
     # --- tax / discount breakdown, frozen at sale time ----------------------
     # Stored rather than recomputed on read: a product's price and its

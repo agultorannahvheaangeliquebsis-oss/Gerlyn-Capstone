@@ -254,6 +254,27 @@ in the old modal markup, so their JS needs no changes.
             </div>
           </div>
 
+          {% comment %}
+          What the store pays for one unit. Optional, and kept current by each
+          received purchase order; typed here for stock that never came in on
+          one (opening stock). Drives cost of goods sold in the Profitability
+          report -- a blank is reported as "no cost price", never read as free.
+          {% endcomment %}
+          <div class="field">
+            <label for="product-cost-price">Cost Price (₱)</label>
+            <div class="price-input">
+              <span class="price-currency">₱</span>
+              {% if mode == 'edit' %}
+              <input id="product-cost-price" type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Cost price" name="cost_price" placeholder="0.00"
+                     value="{{ edit_values.cost_price|unlocalize }}">
+              {% else %}
+              <input id="product-cost-price" type="number" min="{{ limits.min_price }}" max="{{ limits.max_price }}" step="0.01" data-currency data-label="Cost price" name="cost_price" placeholder="0.00"
+                     value="{{ add_form_data.cost_price|default:'' }}">
+              {% endif %}
+            </div>
+            <span class="gv-meta">What one unit costs the store. Used for profit reports; updated automatically when a delivery is received.</span>
+          </div>
+
           {% if mode == 'edit' %}
           {% include "inventory/_price_tier_rows.html" with which="product" rows=edit_values.price_tiers %}
           {% include "inventory/_tax_fields.html" with which="product" is_vat_exempt=edit_values.is_vat_exempt is_pwd_eligible=edit_values.is_pwd_eligible is_senior_eligible=edit_values.is_senior_eligible %}

@@ -222,6 +222,12 @@ def _clean_product_fields(post, files, *, exclude_pk=None):
     if err:
         errors.append(err)
 
+    # Optional: what one unit costs the store. Blank means "not known", which
+    # the Profitability report flags rather than treating as free.
+    cost_price, err = parse_money(post.get('cost_price'), 'Cost price', required=False)
+    if err:
+        errors.append(err)
+
     unit = post.get('unit_of_measure')
     if unit not in Product.UnitOfMeasure.values:
         errors.append('Choose a unit of measure from the list.')
@@ -239,6 +245,7 @@ def _clean_product_fields(post, files, *, exclude_pk=None):
         'barcode': barcode,
         'description': description,
         'unit_price': retail_price,
+        'cost_price': cost_price,
         'unit_of_measure': unit,
         'category_id': category_id,
     }
@@ -332,6 +339,12 @@ def _edit_form_values(product, form_data=None):
         'category_id': pick('category', str(product.category_id or '')),
         'unit_of_measure': pick('unit_of_measure', product.unit_of_measure),
         'unit_price': pick('unit_price', product.unit_price),
+        # A redisplay shows what was posted even when blank (the person cleared
+        # it on purpose); pick() would resurrect the stored cost.
+        'cost_price': (
+            form_data.get('cost_price', '') if form_data is not None
+            else (product.cost_price if product.cost_price is not None else '')
+        ),
         'description': pick('description', product.description),
         # Not pick()-able: the ladder is a list of rows, and a redisplay has
         # to show exactly the rows that were posted — including ones the user
@@ -456,6 +469,7 @@ def product_add(request):
                     product_name=cleaned['product_name'],
                     unit_of_measure=cleaned['unit_of_measure'],
                     unit_price=cleaned['unit_price'],
+                    cost_price=cleaned['cost_price'],
                     description=cleaned['description'],
                     # Tax/discount flags. All three boxes start unticked, so
                     # an absent value simply means "not ticked" — a product is
@@ -546,6 +560,12 @@ def product_edit(request, pk):
                 product.barcode = cleaned['barcode']
                 product.unit_of_measure = cleaned['unit_of_measure']
                 product.unit_price = cleaned['unit_price']
+                # Absent (an older client, an offline replay of a queued form)
+                # means "leave it", not "clear it": the cost also follows each
+                # received purchase order, so wiping it by omission would lose
+                # something nobody asked to lose.
+                if 'cost_price' in request.POST:
+                    product.cost_price = cleaned['cost_price']
                 product.description = cleaned['description']
                 product.is_vat_exempt = bool(request.POST.get('is_vat_exempt'))
                 product.is_pwd_eligible = bool(request.POST.get('is_pwd_eligible'))

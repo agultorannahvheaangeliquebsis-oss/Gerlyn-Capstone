@@ -68,6 +68,22 @@ class Product(models.Model):
     )
     description = models.TextField(blank=True)
 
+    # What one unit costs the store to buy -- the "latest cost price" the
+    # Profitability report falls back on when a sold lot has no purchase order
+    # behind it (opening stock, a customer return, a count correction). Kept
+    # current automatically from each received purchase-order line
+    # (inventory.costing.note_purchase_cost) and editable by hand on the
+    # product form. Distinct from bulk_floor_price, which is a SELLING price
+    # used as a cost proxy for inventory valuation only. Null = unknown, and
+    # the report says so rather than treating the product as free.
+    cost_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        validators=price_validators(),
+        help_text="Latest known cost of one unit. Used for cost of goods sold "
+                  "when a sale cannot be traced to a purchase order. Leave "
+                  "blank if unknown."
+    )
+
     # --- tax / statutory-discount flags -------------------------------------
     # Three independent booleans, not one: a product can be VAT-exempt without
     # qualifying for either statutory discount (and vice versa). See
@@ -141,6 +157,10 @@ class Product(models.Model):
             models.CheckConstraint(
                 condition=models.Q(unit_price__gt=0),
                 name='product_unit_price_positive',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(cost_price__isnull=True) | models.Q(cost_price__gt=0),
+                name='product_cost_price_positive_or_null',
             ),
         ]
 

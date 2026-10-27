@@ -24,11 +24,13 @@ from damage_reports.reporting import PERIODS as DAMAGE_PERIODS
 from damage_reports.reporting import damaged_goods, normalise_period as normalise_damage_period
 from core.pagination import paginate
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset
+from core.module_permissions import REPORTS, user_can_access_module
 from core.permissions import management_report_required
 from core.timebounds import (
     local_day_bounds, local_month_bounds, local_range_bounds,
     parse_iso_date, range_from_request, range_problem, resolve_date_range,
 )
+from reports.profitability import month_to_date_net_profit
 from reports.services import (
     PIPELINE_ORDER_STATUSES, PROCUREMENT_COST_STATUSES, REVENUE_ORDER_STATUSES,
     gross_sales_total, low_stock_count, net_sales_total, pipeline_sales,
@@ -1839,6 +1841,34 @@ def _dashboard_greeting(now, user):
     return f'Good {part}, {name}!'
 
 
+def _net_profit_card(user, today, branch_filter=''):
+    """The Dashboard's "Net Profit (this month)" card: the current calendar
+    month so far, from the same figures the Profitability report prints.
+
+    Owner and Branch Manager only -- Staff get no card, and a Manager whose
+    Reports module is switched off gets none either, since it is a door into
+    that report. An Owner sees what the topbar branch switcher has picked
+    (every branch by default); a Manager always sees their own branch, because
+    month_to_date_net_profit scopes through the same helpers as the report.
+    Returns None when the card is not for this user.
+    """
+    if user.role not in (User.Role.OWNER, User.Role.BRANCH_MANAGER):
+        return None
+    if not user_can_access_module(user, REPORTS):
+        return None
+    figures, start, end = month_to_date_net_profit(user, today, branch_id=branch_filter or None)
+    query = {'range': 'custom', 'date_from': start.isoformat(), 'date_to': end.isoformat()}
+    if branch_filter and user.role == User.Role.OWNER:
+        query['branch'] = branch_filter
+    return {
+        'value': figures.net_profit,
+        'status': figures.status,
+        'margin': figures.net_margin,
+        'month': start,
+        'url': f"{reverse('profitability_report')}?{urlencode(query)}",
+    }
+
+
 @login_required(login_url='accounts:login')
 def operational_dashboard(request):
     """
@@ -2012,6 +2042,7 @@ def operational_dashboard(request):
     recent_activity = _recent_activity(sales_qs, procurement_qs, billing_qs, now)
 
     return render(request, 'reports/dashboard.html', {
+        'net_profit_card': _net_profit_card(request.user, today, branch_filter),
         'greeting': _dashboard_greeting(now, request.user),
         # KPI rail + the graph panel they tab into + the Sales-by-Branch
         # donut, all derived from the one resolved range (DESIGN.md §2a/§2c).

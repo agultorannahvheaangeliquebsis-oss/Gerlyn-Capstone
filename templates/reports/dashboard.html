@@ -1,5 +1,5 @@
 {% extends "internal_base.html" %}
-{% load static %}
+{% load static money %}
 {% block title %}Dashboard{% endblock %}
 {% block page_subtitle %}Dashboard{% endblock %}
 {% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
@@ -58,7 +58,7 @@ string is the same one the graph panel shows for that metric — both come
 from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
 {% endcomment %}
 <div class="mb-6">
-  <div class="kpi-row">
+  <div class="kpi-row{% if net_profit_card %} kpi-row--six{% endif %}">
     {% for card in kpi_cards %}
     <button type="button" class="stat-hero{% if forloop.first %} active{% endif %}"
             data-kpi-key="{{ card.key }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">
@@ -74,6 +74,28 @@ from reports/views.py::_dashboard_kpi_payload, so they cannot drift.
       {% endif %}
     </button>
     {% endfor %}
+    {% comment %}
+    Net Profit (this month) -- Owner and Branch Manager only (net_profit_card is
+    None for anyone else). Month to date, from the same figures as the
+    Profitability report it links to, so the two cannot disagree. Like Low /
+    Critical below it is a plain .kpi-card, not a tab into the graph panel (it
+    has no daily series to plot). Red tint only for a loss -- tint carries
+    status, and "this needs a look" is the one a card should shout; a profit is
+    said in words by the pill, which also carries the loss so colour is never
+    the only signal.
+    {% endcomment %}
+    {% if net_profit_card %}
+    <a class="kpi-card kpi-link{% if net_profit_card.status == 'loss' %} danger{% endif %}" href="{{ net_profit_card.url }}"
+       aria-label="Net profit this month, {{ net_profit_card.value|peso }}. Open the Profitability report.">
+      <span class="label">Net Profit (this month)</span>
+      <span class="value">{{ net_profit_card.value|peso }}</span>
+      <span class="stat-status">
+        {% if net_profit_card.status == 'profit' %}<span class="pill pill-ok">Profit{% if net_profit_card.margin is not None %} · {{ net_profit_card.margin|pct }} margin{% endif %}</span>
+        {% elif net_profit_card.status == 'loss' %}<span class="pill pill-danger">Loss{% if net_profit_card.margin is not None %} · {{ net_profit_card.margin|pct }} margin{% endif %}</span>
+        {% else %}<span class="pill pill-neutral">Break-even</span>{% endif %}
+      </span>
+    </a>
+    {% endif %}
     {% comment %}
     Low / Critical Items — moved up from the Inventory row below (still the
     same query/count, reports/views.py::_dashboard_inventory_metrics; not

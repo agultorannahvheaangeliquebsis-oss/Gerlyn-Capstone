@@ -134,7 +134,12 @@ REGISTRY = {
         mask=_f('delivery_address', 'discount_id_number', 'discount_holder_name',
                 'pwd_request_id_number', 'pwd_request_holder_name', 'pos_cashier_id'),
     ),
-    'sales.SalesItem': AuditConfig('Order item', branch_path='transaction.branch_id'),
+    # unit_cost is stamped onto every line as its stock leaves the shelf
+    # (inventory.costing) -- derived bookkeeping, not a decision anyone made, so
+    # it would only double the log with one "cost: None -> 12.5" row per line.
+    'sales.SalesItem': AuditConfig(
+        'Order item', branch_path='transaction.branch_id', exclude=_f('unit_cost'),
+    ),
     'sales.PosSalesImport': AuditConfig(
         'ZANK POS sales import', repr_field='original_filename',
     ),
@@ -164,6 +169,14 @@ REGISTRY = {
     ),
     'damage_reports.DamageReportPhoto': AuditConfig(
         'Damage report photo', branch_path='report.branch_id',
+    ),
+    # --- expenses ------------------------------------------------------------
+    # Category as the name, so the log reads "Rent" rather than "Expense #12".
+    # The description is free text and, for a salary, can carry an employee's
+    # name, so like the damage report's it is masked; the receipt photo is a
+    # file field and is always recorded only as "[file]".
+    'expenses.Expense': AuditConfig(
+        'Expense', repr_field='category', mask=_f('description'),
     ),
     # --- billing -------------------------------------------------------------
     'billing.BillingRecord': AuditConfig(

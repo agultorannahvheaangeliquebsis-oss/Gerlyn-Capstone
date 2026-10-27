@@ -422,6 +422,17 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
   grid-auto-rows: 1fr;
   gap: var(--s4); margin-bottom: var(--s6);
 }
+/* The Dashboard rail with its sixth card (Net Profit, Owner and Branch Manager).
+   Auto-fit would settle on 5 across at laptop widths and strand the sixth on a
+   row of its own, so six cards are laid out deliberately: 3 x 2 through laptop
+   widths, one row of 6 where there is room for it, and the ordinary auto-fit
+   below 1000px where the rail is already stacking. */
+@media (min-width: 1000px) and (max-width: 1699px) {
+  .kpi-row--six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1700px) {
+  .kpi-row--six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
 /* Overflow contract for a stat card — whatever the figure's length or the
    card's width, nothing paints outside the card's border box:
      - min-width: 0 on the card. A grid/flex item defaults to min-width: auto,
@@ -496,6 +507,10 @@ input:-moz-ui-valid, input:-moz-ui-invalid { box-shadow: none; }
    only ever made the cards' ring 1px thinner than every other control's. */
 .stat-hero.active { background: var(--green-50); border-color: var(--brand); }
 
+/* A card that is a link (Dashboard: Net Profit -> Profitability report). The
+   shell is the same .kpi-card; only the anchor defaults and a hover cue change. */
+a.kpi-card { color: inherit; text-decoration: none; }
+a.kpi-card:hover { border-color: var(--brand); }
 .kpi-card.danger { background: var(--danger-bg); border-color: #E6B3AE; }
 .kpi-card.danger .value { color: var(--danger-fg); }
 .kpi-card.warn { background: var(--warn-bg); border-color: #EAC97E; }

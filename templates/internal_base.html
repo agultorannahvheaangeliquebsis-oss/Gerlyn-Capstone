@@ -161,19 +161,23 @@ DOM — it is off-screen until focused (see .skip-link).
       {% endif %}
 
       {# -------------------------------------------------- System / Monitoring #}
-      {% if module_access.reports or module_access.alerts or request.user.role == 'OWNER' or request.user.is_superuser %}
+      {% if module_access.reports or module_access.expenses or module_access.alerts or request.user.role == 'OWNER' or request.user.is_superuser %}
       <div class="sb-tree-root">
         <button type="button" class="sb-tree-toggle" data-target="tree-monitoring" title="System &amp; Monitoring"
-          aria-expanded="{% if active_page == 'reports' or active_page == 'alerts' or active_page == 'audit' or active_page == 'backups' %}true{% else %}false{% endif %}">
+          aria-expanded="{% if active_page == 'reports' or active_page == 'expenses' or active_page == 'alerts' or active_page == 'audit' or active_page == 'backups' %}true{% else %}false{% endif %}">
           <i data-lucide="activity"></i>
           <span class="sb-label">System &amp; Monitoring</span>
           {% if alert_count %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
           <i class="sb-chevron" data-lucide="chevron-right"></i>
         </button>
-        <ul class="sb-tree {% if active_page == 'reports' or active_page == 'alerts' or active_page == 'audit' or active_page == 'backups' %}open{% endif %}" id="tree-monitoring">
+        <ul class="sb-tree {% if active_page == 'reports' or active_page == 'expenses' or active_page == 'alerts' or active_page == 'audit' or active_page == 'backups' %}open{% endif %}" id="tree-monitoring">
           <li class="sb-tree-inner">
             {% if module_access.reports %}
             <a class="sb-tree-file {% if active_page == 'reports' %}sb-tree-file--active{% endif %}" href="{% url 'reports_dashboard' %}"><span class="sb-label">Reports</span></a>
+            {% endif %}
+            {# Owner and Branch Manager only -- module_access.expenses is False for Staff whatever they are granted. #}
+            {% if module_access.expenses %}
+            <a class="sb-tree-file {% if active_page == 'expenses' %}sb-tree-file--active{% endif %}" href="{% url 'expense_list' %}"><span class="sb-label">Expenses</span></a>
             {% endif %}
             {% if module_access.alerts %}
             <a class="sb-tree-file {% if active_page == 'alerts' %}sb-tree-file--active{% endif %}" href="{% url 'alerts_center' %}">
@@ -367,7 +371,7 @@ DOM — it is off-screen until focused (see .skip-link).
     </a>
     {% endif %}
     <details class="more-menu">
-      <summary class="{% if active_page == 'alerts' or active_page == 'billing' or active_page == 'audit' or active_page == 'reports' or active_page == 'deliveries' or active_page == 'damage_reports' or active_page == 'internal_settings' %}active{% endif %}">
+      <summary class="{% if active_page == 'alerts' or active_page == 'billing' or active_page == 'audit' or active_page == 'reports' or active_page == 'expenses' or active_page == 'deliveries' or active_page == 'damage_reports' or active_page == 'internal_settings' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         More
         {% if alert_count and module_access.alerts %}<span class="nav-badge">{{ alert_count }}</span>{% endif %}
@@ -383,6 +387,9 @@ DOM — it is off-screen until focused (see .skip-link).
         {% endif %}
         {% if module_access.reports %}
         <a class="more-menu-link {% if active_page == 'reports' %}active{% endif %}" href="{% url 'reports_dashboard' %}">Reports</a>
+        {% endif %}
+        {% if module_access.expenses %}
+        <a class="more-menu-link {% if active_page == 'expenses' %}active{% endif %}" href="{% url 'expense_list' %}">Expenses</a>
         {% endif %}
         {# Same gate as the sidebar's Audit Log row; audit.views.can_view_audit_log is the real check. #}
         {% if request.user.role == 'OWNER' or request.user.is_superuser %}

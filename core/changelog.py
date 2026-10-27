@@ -12,6 +12,16 @@
 # shipped even when every change in it is internal-only.
 CHANGELOG = [
     {
+        'version': '1.40.0',
+        'date': '2026-10-27',
+        'changes': [
+            {'text': 'New Profitability report (Reports): gross sales, refunds, cost of goods sold, gross profit, expenses and net profit for any date range, with a green/red profit-or-loss verdict, a per-branch comparison for the Owner, a monthly trend, and the ten most and least profitable products. Exports to PDF and Excel', 'internal': True},
+            {'text': 'New Expenses page (Finance): the Owner and Branch Managers record rent, utilities, salaries, transportation, supplies, maintenance and other costs, with an optional receipt photo. A Branch Manager works on their own branch only; every change is in the Audit Log. Salaries are typed in by hand, as the system has no payroll', 'internal': True},
+            {'text': 'Products have a Cost Price. Each sale line now records what its stock cost at the moment of sale, taken from the purchase order the batch came in on (otherwise the product\'s latest cost), so a later price change never rewrites past profit. The report flags any product with no cost price instead of treating it as free', 'internal': True},
+            {'text': 'The Dashboard has a Net Profit (this month) card for the Owner and Branch Managers (a manager sees their own branch)', 'internal': True},
+        ],
+    },
+    {
         'version': '1.39.0',
         'date': '2026-10-26',
         'changes': [

@@ -597,6 +597,113 @@ estimated loss   = SUM(quantity x estimated_unit_cost)
 
 ---
 
+## Profitability (Reports → Profitability, Dashboard "Net Profit (this month)")
+
+**What it answers:** is the business making money? Owner (every branch, or one
+picked) and Branch Manager (own branch). Staff have no access to the page, its
+exports or the Expenses module, whatever module grants an account carries.
+
+**The statement, top to bottom** (`reports/profitability.py::Figures`):
+
+```
+  Gross sales          Completed orders, before refunds          (services.gross_sales_total)
+- Refunds              Approved refunds against those orders     (services.refund_value_total)
+= Net sales
+- COGS                 cost of the goods those orders sold, below
+= Gross profit         gross margin %  = gross profit / net sales
+- Expenses             Expenses module, by category
+= Net profit           net margin %    = net profit / net sales
+```
+
+*Procurement spend* (net of supplier returns, the figure the Procurement report
+and the Dashboard's Net Procurement card show) is printed beside the statement
+**as information only**. Stock bought becomes a cost when it is *sold*, through
+COGS; subtracting purchases as well would count the same stock twice and make a
+store that merely stocked up look unprofitable.
+
+**Margins.** One decimal place, half-up. When net sales is zero (or negative) a
+margin is *not defined* and prints "—"; it is never shown as 0%.
+
+**COGS.** Every sale line carries `SalesItem.unit_cost`, frozen when its stock
+leaves the shelf (`sales.views._deduct_stock`, and the API create path) — at the
+sale for a walk-in, at hand-over for an online order. The cost comes from
+`inventory/costing.py`:
+
+1. each **batch** the line drew from (`SalesItemBatchConsumption`) is priced from
+   its purchase order — `Batch.procurement` → the PO line's `unit_cost_snapshot`
+   (a floor batch made by a restock copies `procurement` and links `source_batch`,
+   which is walked if the copy is missing);
+2. a batch with no purchase order behind it (opening stock, a customer return, a
+   count correction) is priced at the product's latest `Product.cost_price`;
+3. a line that drew on several batches is the quantity-weighted average of them
+   (four decimal places); anything unknown makes the whole line **unknown (NULL),
+   never zero**.
+
+`Product.cost_price` follows each received purchase-order line
+(`procurement.services.record_delivery`) and can be typed on the product form. The
+report sums `ROUND(quantity x cost, 2)` per line, so every total is a sum of
+centavo amounts and the branch rows add up to the grand total exactly. A line
+with no frozen cost (recorded before costs were tracked) is valued at its
+product's *current* cost price and counted as "estimated"; `manage.py
+backfill_sale_costs` freezes those from the batches they actually used. Goods
+refunded back onto the shelf as **Sellable** were never consumed, so their cost
+comes back out of COGS; a **Damaged** refunded unit is lost stock and its cost
+stays.
+
+**Which period a figure belongs to.** Sales, their refunds and their COGS belong
+to the day the *order* was placed — the same rule as the Sales report (a refund
+reduces the sale it was against). Expenses belong to the date on the expense.
+Date bounds are half-open aware datetimes for orders and plain dates for
+expenses (`core/timebounds.py`); the monthly trend uses conditional sums per
+month, so no timezone function runs in the database.
+
+**Incomplete data.** A sold product with no cost anywhere is listed ("N products
+have no cost price; profit may be overstated") with units and sales affected, is
+left out of the most/least-profitable ranking (counted as free it would top the
+table), and is flagged "No cost price" in the export's detail table. Sale lines
+valued at the current cost price are counted separately ("estimated").
+
+**Rankings.** Gross profit per product (net sales less COGS, after refunds). Top
+10 and bottom 10 among fully costed products; a product never appears in both,
+so with fewer than 20 products the second list holds only what the first did not.
+
+**Monthly trend.** Calendar months of the range (latest 12), each with net sales,
+COGS, expenses and net profit; a month only partly inside the range is marked
+`*`. Drawn as two panels on separate axes (net profit is a few thousand against
+hundreds of thousands of sales, so one axis would flatten it) with the same
+figures in a table beneath.
+
+**Scope.** `figures_by_branch()` is the single computation behind the page, the
+export and the Dashboard card; totals are sums of its branch rows. A Manager's
+own branch always wins over `?branch=`; an unassigned account sees nothing (the
+scope helpers fail closed).
+
+**Dashboard card.** "Net Profit (this month)" is the current calendar month to
+date (`month_to_date_net_profit`) — the Owner's card follows the branch switcher,
+a Manager's is their branch. It tints red for a loss, says Profit/Loss in words,
+and is absent for Staff, and for a Manager whose Reports module is switched off.
+
+**Expenses** (`expenses/`): category (Rent, Utilities, Salaries, Transportation,
+Supplies, Maintenance, Other), amount (₱0.01–₱10,000,000), date (not in the
+future), optional description (required for Other), optional JPG/PNG receipt
+(private storage, streamed through a branch-checked view). Create/edit/delete is
+Owner and Branch Manager (own branch) only; every change is in the Audit Log
+(description masked, receipt recorded as "[file]"). Salaries are an amount typed
+in by hand — there is no payroll to compute one from.
+
+**Not subtracted / not modelled:** VAT (sales are the VAT-inclusive totals the
+rest of the app reports; supplier costs are the prices agreed on the PO), income
+tax, depreciation, and the cost of stock that was written off or damaged (see
+the Inventory Report's Damaged Goods section).
+
+**Code:** `reports/profitability.py` (figures, ranking, trend, notes),
+`reports/profit_chart.py` (chart geometry), `reports/profitability_views.py`,
+`reports/exports.py::build_profitability_document`, `inventory/costing.py`.
+**Tests:** `reports/tests_profitability.py`, `tests_profitability_views.py`,
+`inventory/tests_costing.py`, `expenses/tests.py`.
+
+---
+
 ## Maintenance note
 
 If a new percentage, metric, or DSS rule is added anywhere in the app, add an entry

@@ -1,0 +1,28 @@
+{% comment %}
+One ranked product table for the Profitability page.
+Context: title, rows (reports.profitability.ProductRow list), empty_text.
+{% endcomment %}
+{% load money %}
+<div class="card table-wrap">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>{{ title }}</h3></div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>Product</th><th class="num">Units</th><th class="num">Net sales</th>
+          <th class="num">Gross profit</th><th class="num">Margin</th></tr>
+    </thead>
+    <tbody>
+      {% for p in rows %}
+      <tr>
+        <td data-label="Product" class="strong">{{ p.name }}{% if p.cost_note %} <span class="tag" title="Cost of goods sold for this product uses the product's current cost price">{{ p.cost_note }}</span>{% endif %}
+          <span class="gv-meta" style="display:block;">{{ p.sku }}</span></td>
+        <td data-label="Units" class="num">{{ p.units }}</td>
+        <td data-label="Net sales" class="num">{{ p.net_sales|peso }}</td>
+        <td data-label="Gross profit" class="num strong {% if p.gross_profit < 0 %}pf-loss{% endif %}">{{ p.gross_profit|peso }}</td>
+        <td data-label="Margin" class="num">{{ p.margin|pct }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty"><h3>{{ empty_text }}</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

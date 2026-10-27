@@ -146,6 +146,9 @@ INSTALLED_APPS = [
     # Damaged Product Reports: photo evidence, manager review, and the stock /
     # refund / supplier-return follow-through.
     'damage_reports',
+    # Operating expenses (rent, utilities, salaries ...) feeding the
+    # Profitability report. Owner and Branch Manager only.
+    'expenses',
     # Ledger + endpoints behind the offline queue (static/js/offline-sync.js):
     # replays changes queued while offline, exactly once, through the real views.
     'offline_sync',

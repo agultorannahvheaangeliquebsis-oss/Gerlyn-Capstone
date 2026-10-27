@@ -1,0 +1,108 @@
+{% extends "internal_base.html" %}
+{% load l10n %}
+{% block title %}{% if mode == 'edit' %}Edit Expense{% else %}Record Expense{% endif %}{% endblock %}
+{% block page_subtitle %}Finance{% endblock %}
+{% block branch_scope %}{% if own_branch %}{{ own_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+
+{% block extra_css %}
+<style>
+  {% comment %}
+  Page-scoped (ex- prefix), built from the shared .card / .field / .grid-2 /
+  .banner components. Every block after the first gets the same gap.
+  {% endcomment %}
+  .ex-form > :is(.field, .grid-2) ~ :is(.field, .grid-2) { margin-top: var(--s4); }
+  .ex-form .grid-2 { align-items: start; }
+  .ex-hint { display: block; margin-top: 4px; }
+  /* The peso sign sits inside the input, as on the Product form. */
+  .ex-form .price-input { position: relative; }
+  .ex-form .price-input .price-currency {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: var(--ink-400); pointer-events: none;
+  }
+  .ex-form .price-input input { padding-left: 30px; }
+  .ex-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s6); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="back-link" href="{% url 'expense_list' %}">Expenses</a>
+    <h1 class="mt-2">{% if mode == 'edit' %}Edit Expense{% else %}Record Expense{% endif %}</h1>
+    <p class="gv-meta">Operating costs only — stock bought from suppliers is recorded under Procurement and is not entered here.</p>
+  </div>
+</div>
+
+{% if errors %}
+<div class="banner banner-error" role="alert">
+  <span>{% if errors|length == 1 %}{{ errors.0 }}{% else %}Please fix the following:{% endif %}</span>
+  {% if errors|length > 1 %}<ul style="margin:6px 0 0 18px;">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="card card-pad ex-form">
+  {% csrf_token %}
+
+  <div class="grid-2">
+    <div class="field">
+      <label for="ex-branch">Branch</label>
+      {% if own_branch %}
+      {# A Branch Manager records for their own branch only; the server ignores any other value. #}
+      <input id="ex-branch" type="text" value="{{ own_branch.branch_name }}" readonly>
+      {% else %}
+      <select id="ex-branch" name="branch" required>
+        <option value="">Choose a branch</option>
+        {% for b in branches %}<option value="{{ b.pk|unlocalize }}"{% if values.branch|stringformat:"s" == b.pk|stringformat:"s" %} selected{% endif %}>{{ b.branch_name }}</option>{% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    <div class="field">
+      <label for="ex-category">Category</label>
+      <select id="ex-category" name="category" required>
+        <option value="">Choose a category</option>
+        {% for value, label in categories %}<option value="{{ value }}"{% if values.category == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="field">
+      <label for="ex-amount">Amount (₱)</label>
+      <div class="price-input">
+        <span class="price-currency">₱</span>
+        <input id="ex-amount" type="number" name="amount" min="{{ limits.min_price }}" max="{{ limits.max_amount }}" step="0.01"
+               placeholder="0.00" inputmode="decimal" required value="{{ values.amount|unlocalize }}">
+      </div>
+      <span class="gv-meta ex-hint">For Salaries, type the total paid — the system has no payroll to work it out.</span>
+    </div>
+    <div class="field">
+      <label for="ex-date">Date</label>
+      <input id="ex-date" type="date" name="date" max="{{ today|date:'Y-m-d' }}" required value="{{ values.date }}">
+      <span class="gv-meta ex-hint">The day the cost belongs to, e.g. the month's rent is dated that month.</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="ex-description">Description <span class="gv-meta">(required for “Other”)</span></label>
+    <textarea id="ex-description" name="description" rows="3" maxlength="{{ limits.max_description }}"
+              placeholder="e.g. Meralco bill, October">{{ values.description }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="ex-receipt">Receipt photo <span class="gv-meta">(optional)</span></label>
+    <input id="ex-receipt" type="file" name="receipt" accept="image/jpeg,image/png">
+    <span class="gv-meta ex-hint">JPG or PNG, up to {{ max_receipt_mb }} MB.</span>
+    {% if expense and expense.receipt %}
+    <p class="gv-meta ex-hint">
+      Current receipt: <a href="{% url 'expense_receipt' expense.pk %}" target="_blank" rel="noopener">view</a>
+      · <label><input type="checkbox" name="remove_receipt" value="1"> remove it</label>
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="ex-actions">
+    <button type="submit" class="btn btn-primary">{% if mode == 'edit' %}Save changes{% else %}Record expense{% endif %}</button>
+    <a class="btn" href="{% url 'expense_list' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

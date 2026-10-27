@@ -11,6 +11,7 @@ from .pricing import price_cart
 from .pwd_requests import new_request_fields, request_can_reach_cart, validate_pwd_details
 from core.limits import MAX_QUANTITY
 from core.scoping import user_can_access_branch
+from inventory.costing import CostResolver, stamp_sale_item_cost
 from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
 
@@ -537,6 +538,7 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 == SalesTransaction.TransactionType.PHYSICAL
             )
 
+            cost_resolver = CostResolver()
             for line, inv in zip(priced['lines'], inventories):
                 product, qty = line['product'], line['quantity']
                 item = SalesItem.objects.create(
@@ -563,6 +565,8 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     SalesItemBatchConsumption(sales_item=item, batch=batch, quantity_taken=taken)
                     for batch, taken in consumed
                 ])
+                # ...and the frozen unit cost the Profitability report reads.
+                stamp_sale_item_cost(item, consumed, cost_resolver)
                 # ...and so does the audit row. Stock that moves without a
                 # StockMovement is stock nobody can trace: the Stock Movement
                 # log, and every report reading it, silently missed every sale

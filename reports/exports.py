@@ -1,6 +1,6 @@
 """
-reports/exports.py — the PDF and Excel exports of the four management reports
-(Sales, Billing, Inventory, Procurement).
+reports/exports.py — the PDF and Excel exports of the five management reports
+(Sales, Billing, Inventory, Procurement, Profitability).
 
 Every export is one ReportDocument: a header block (store, report, branch,
 period, who generated it and when), a Summary, and a detail table grouped by
@@ -52,6 +52,7 @@ from reports.services import (
     scoped_procurement_in_range,
     scoped_sales_in_range,
 )
+from reports import profitability as profit
 from reports.views import (
     _inventory_unit_cost,
     billing_figures,
@@ -64,7 +65,7 @@ from sales.models import Refund, SalesTransaction
 STORE_NAME = 'Gerlyn Variety Store'
 APP_NAME = 'GerlynPLUS'
 
-REPORT_KINDS = ('sales', 'billing', 'inventory', 'procurement')
+REPORT_KINDS = ('sales', 'billing', 'inventory', 'procurement', 'profitability')
 
 # xhtml2pdf lays a table out in memory and a gunicorn worker is held for the
 # whole render (Procfile: --timeout 60). Measured here: ~19 ms a row, so 1,440
@@ -126,15 +127,31 @@ class Column:
     width: int = 10         # relative weight; the renderers normalise to 100%
 
 
+class Percent:
+    """A percentage figure (68.3 prints as "68.3%"). Its own type, not a bare
+    Decimal, because in this module every Decimal is a peso amount."""
+    __slots__ = ('value',)
+
+    def __init__(self, value):
+        self.value = Decimal(value)
+
+
+def percent_cell(value):
+    """A margin as a table cell: a Percent, or None when there is no figure."""
+    return None if value is None else Percent(value)
+
+
 @dataclass
 class SummaryBlock:
     """One titled table in the Summary: column headers, then rows of typed
-    values (str / int / Decimal / None). The last row is a total when
-    `total_row` is set, and is drawn bold."""
+    values (str / int / Decimal / Percent / None). The last row is a total when
+    `total_row` is set, and is drawn bold. A `wide` block (many columns) gets a
+    row of the PDF to itself instead of sharing it with up to two others."""
     title: str
     headers: list
     rows: list
     total_row: bool = False
+    wide: bool = False
 
 
 @dataclass
@@ -168,6 +185,10 @@ class ReportDocument:
     notes: list = field(default_factory=list)
     detail_title: str = 'Details'
     sheet_name: str = 'Detail'
+    # A report whose Summary stands on its own (Profitability: an expenses-only
+    # month has a Summary and no detail rows) is not "empty" just because the
+    # detail table is.
+    summary_only_ok: bool = False
 
     @property
     def row_count(self):
@@ -175,7 +196,7 @@ class ReportDocument:
 
     @property
     def is_empty(self):
-        return self.row_count == 0
+        return self.row_count == 0 and not self.summary_only_ok
 
     @property
     def generated_label(self):
@@ -205,6 +226,8 @@ def fmt_cell(value, money_prefix=False):
         return '—'
     if isinstance(value, bool):
         return 'Yes' if value else 'No'
+    if isinstance(value, Percent):
+        return f'{value.value:,.1f}%'
     if isinstance(value, Decimal):
         return fmt_money(value, prefix=money_prefix)
     if isinstance(value, int):
@@ -810,11 +833,167 @@ def build_procurement_document(user, start, end, active_range='30', branch_id=No
     )
 
 
+# =============================================================================
+# Profitability
+# =============================================================================
+
+PROFITABILITY_COLUMNS = [
+    Column('sku', 'SKU', width=11),
+    Column('product', 'Product', width=28),
+    Column('units', 'Units sold', 'right', 8),
+    Column('net_sales', 'Net sales (PHP)', 'right', 12),
+    Column('cogs', 'COGS (PHP)', 'right', 12),
+    Column('gross_profit', 'Gross profit (PHP)', 'right', 12),
+    Column('margin', 'Margin', 'right', 8),
+    Column('cost_data', 'Cost data', width=11),
+]
+
+_VERDICT = {'profit': 'Profit', 'loss': 'Loss', 'breakeven': 'Break-even'}
+_MISSING_LIST_LIMIT = 15
+
+
+def _product_detail_row(p):
+    return [
+        p.sku or '—', p.name, p.units, p.net_sales, p.cogs, p.gross_profit,
+        percent_cell(p.margin), p.cost_note or None,
+    ]
+
+
+def _product_subtotal(rows):
+    net = sum((p.net_sales for p in rows), ZERO)
+    gross_profit = sum((p.gross_profit for p in rows), ZERO)
+    return [
+        sum(p.units for p in rows), net, sum((p.cogs for p in rows), ZERO), gross_profit,
+        percent_cell(profit.percent(gross_profit, net)), None,
+    ]
+
+
+def _ranking_block(title, rows):
+    return SummaryBlock(
+        title, ['Product', 'Units', 'Net sales', 'Gross profit', 'Margin'],
+        [[p.name, p.units, p.net_sales, p.gross_profit, percent_cell(p.margin)] for p in rows]
+        or [['None in this period', None, None, None, None]],
+    )
+
+
+def build_profitability_document(user, start, end, active_range='30', branch_id=None, now=None):
+    branch_id = owner_branch_choice(user, branch_id)
+    result = profit.build_profitability(user, start, end, branch_id=branch_id)
+    t = result.totals
+
+    verdict = _VERDICT[t.status]
+    headline = [
+        ('Net sales', t.net_sales),
+        ('Gross profit', t.gross_profit),
+        ('Total expenses', t.expenses),
+        ('Net loss' if t.status == 'loss' else 'Net profit', t.net_profit),
+        ('Result', f'{verdict} · {fmt_cell(percent_cell(t.net_margin))} net margin'),
+    ]
+
+    summary = [
+        SummaryBlock('Profit and loss', ['Measure', 'Amount', '% of net sales'], [
+            ['Gross sales (completed orders)', t.gross_sales, None],
+            ['Less: refunds (approved)', t.refunds, None],
+            ['Net sales', t.net_sales, Percent(100) if t.net_sales > 0 else None],
+            ['Less: cost of goods sold', t.cogs, None],
+            ['Gross profit', t.gross_profit, percent_cell(t.gross_margin)],
+            ['Less: expenses', t.expenses, None],
+            ['Net loss' if t.status == 'loss' else 'Net profit', t.net_profit, percent_cell(t.net_margin)],
+        ], total_row=True),
+        SummaryBlock('Expenses by category', ['Category', 'Amount', 'Share'], [
+            [category, amount, percent_cell(share)] for category, amount, share in result.expenses_by_category
+        ] + [['Total', t.expenses, Percent(100) if t.expenses > 0 else None]], total_row=True),
+        SummaryBlock('For information', ['Measure', 'Value'], [
+            ['Procurement spend (not subtracted)', result.procurement_spend],
+            ['Products with no cost price', result.missing_product_count],
+            ['Sale lines valued at current cost', result.estimated_lines],
+        ]),
+    ]
+    if result.show_comparison and len(result.branches) > 1:
+        rows = [
+            [f.label, f.net_sales, f.cogs, f.gross_profit, percent_cell(f.gross_margin),
+             f.expenses, f.net_profit, percent_cell(f.net_margin)]
+            for f in result.branches
+        ]
+        everything = result.all_branches
+        rows.append([
+            'All branches', everything.net_sales, everything.cogs, everything.gross_profit,
+            percent_cell(everything.gross_margin), everything.expenses, everything.net_profit,
+            percent_cell(everything.net_margin),
+        ])
+        summary.append(SummaryBlock(
+            'Branch comparison',
+            ['Branch', 'Net sales', 'COGS', 'Gross profit', 'Gross margin', 'Expenses', 'Net profit', 'Net margin'],
+            rows, total_row=True, wide=True,
+        ))
+    if result.months:
+        summary.append(SummaryBlock(
+            'Monthly trend', ['Month', 'Net sales', 'COGS', 'Expenses', 'Net profit'],
+            [[f'{m.label}{"*" if m.partial else ""}', m.net_sales, m.cogs, m.expenses, m.net_profit]
+             for m in result.months],
+            wide=True,
+        ))
+    summary.append(_ranking_block('Most profitable products', result.top_products))
+    summary.append(_ranking_block('Least profitable products', result.bottom_products))
+
+    # --- Detail: product profitability, grouped by branch ---------------------
+    orders = profit.scoped_revenue_orders(user, start, end, branch_id=branch_id)
+    # The branches inside the figures above: the one picked, else every branch
+    # the user can see.
+    in_scope = [f for f in result.branches if not branch_id or (f.branch and f.branch.pk == branch_id)]
+    groups, all_rows = [], []
+    for figures in in_scope:
+        branch = figures.branch
+        branch_orders = orders.filter(branch=branch) if branch else orders.filter(branch__isnull=True)
+        rows = profit._product_rows(branch_orders)
+        if not rows:
+            continue
+        all_rows.extend(rows)
+        group = Group(title=figures.label, rows=[_product_detail_row(p) for p in rows])
+        if len(in_scope) > 1:
+            group.subtotal_label = f'Subtotal · {figures.label} · {_plural(len(rows), "product")}'
+            group.subtotal = _product_subtotal(rows)
+        groups.append(group)
+
+    notes = list(profit.data_notes(result))
+    if result.missing_cost:
+        shown = result.missing_cost[:_MISSING_LIST_LIMIT]
+        listed = ', '.join(f'{p.name} ({p.sku})' for p in shown)
+        more = len(result.missing_cost) - len(shown)
+        notes.append(f'Products with no cost price: {listed}{f" and {more} more" if more > 0 else ""}.')
+    notes += [
+        'Net sales = gross sales (completed orders) less approved refunds. Cost of goods sold uses the unit cost '
+        'frozen on each sale line when it was sold; goods refunded back onto the shelf are taken out of it.',
+        'Procurement spend is for information only: stock bought becomes a cost when it is sold, so it is not '
+        'subtracted a second time.',
+        'Expenses are those recorded in the Expenses module. Salaries are amounts entered by hand; the system '
+        'has no payroll.',
+    ]
+    if result.months_trimmed:
+        notes.append(f'The monthly trend shows the latest {len(result.months)} months of the period.')
+    if any(m.partial for m in result.months):
+        notes.append('* Only part of this month falls inside the period.')
+
+    return ReportDocument(
+        kind='profitability', title='Profitability Report', orientation='landscape',
+        period_label=period_label(active_range, start, end),
+        columns=PROFITABILITY_COLUMNS, label_span=2,
+        headline=headline, summary=summary, groups=groups,
+        grand_total=_product_subtotal(all_rows) if groups else None,
+        grand_total_label=f'Grand total · {_plural(len(all_rows), "product")}',
+        notes=notes,
+        detail_title='Product profitability', sheet_name='Product Profitability',
+        summary_only_ok=result.has_data,
+        **_document_header(user, branch_id, now),
+    )
+
+
 BUILDERS = {
     'sales': build_sales_document,
     'billing': build_billing_document,
     'inventory': build_inventory_document,
     'procurement': build_procurement_document,
+    'profitability': build_profitability_document,
 }
 
 
@@ -893,12 +1072,24 @@ def _pdf_context(doc):
             'total_row': b.total_row,
         }
 
-    blocks = [block(b) for b in doc.summary]
-    # Up to three summary tables side by side; the cell width follows the count.
-    block_rows = []
-    for i in range(0, len(blocks), 3):
-        chunk = blocks[i:i + 3]
-        block_rows.append([{**b, 'width': round(100 / len(chunk))} for b in chunk])
+    # Up to three summary tables side by side (the cell width follows the
+    # count); a wide one -- many columns -- takes a row to itself.
+    block_rows, chunk = [], []
+
+    def flush():
+        if chunk:
+            block_rows.append([{**b, 'width': round(100 / len(chunk))} for b in chunk])
+            chunk.clear()
+
+    for source, rendered in zip(doc.summary, (block(b) for b in doc.summary)):
+        if source.wide:
+            flush()
+            block_rows.append([{**rendered, 'width': 100}])
+            continue
+        chunk.append(rendered)
+        if len(chunk) == 3:
+            flush()
+    flush()
 
     # A text tile ("Plaridel Branch · PHP 14,088.00") needs more room than a figure.
     headline_weights = [1.7 if isinstance(value, str) else 1 for _, value in doc.headline]
@@ -963,7 +1154,10 @@ def _xlsx_value(cell, value, money_format=_XLSX_MONEY):
     if value is None or value == '':
         cell.value = None
         return
-    if isinstance(value, Decimal):
+    if isinstance(value, Percent):
+        cell.value = float(value.value) / 100
+        cell.number_format = '0.0%'
+    elif isinstance(value, Decimal):
         cell.value = float(value)
         cell.number_format = money_format
     elif isinstance(value, datetime):

@@ -17,6 +17,7 @@ from django.utils import timezone
 from core.limits import MAX_AMOUNT, parse_money
 from core.date_validation import validate_today_or_future
 
+from inventory.costing import note_purchase_cost
 from inventory.models import Batch, Product, StockMovement, Warehouse, WarehouseStock
 
 from .models import (
@@ -318,6 +319,10 @@ def record_delivery(
                 location=Batch.Location.WAREHOUSE, procurement=locked,
                 quantity=quantity, received_date=receipt_date, expiry_date=expiry,
             )
+            # The product's latest cost follows what the supplier actually
+            # charged, so the Profitability report has a current fallback for
+            # stock that cannot be traced to a purchase order later on.
+            note_purchase_cost(item.product, item.unit_cost_snapshot)
             DeliveryReceiptItem.objects.create(
                 receipt=receipt, procurement_item=item, product=item.product,
                 quantity_received=quantity, batch=batch,

@@ -1,0 +1,120 @@
+{% extends "internal_base.html" %}
+{% load l10n pager %}
+{% block title %}Expenses{% endblock %}
+{% block page_subtitle %}Finance{% endblock %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Expenses</h1>
+    <p class="gv-meta">Rent, utilities, salaries and the other costs of running a branch. They are subtracted from gross profit in the <a href="{% url 'profitability_report' %}">Profitability report</a>.</p>
+  </div>
+  <div class="row no-print" style="gap:var(--s2);">
+    {% include "_daterange.html" %}
+    {% if module_actions.expenses.add %}
+    <a class="btn btn-primary" href="{% url 'expense_add' %}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Record Expense
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi-card">
+    <span class="label">Total Expenses</span>
+    <span class="value">₱{{ total_amount|floatformat:2 }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Entries</span>
+    <span class="value">{{ total_count }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Largest Category</span>
+    <span class="value">{% if top_category %}{{ top_category.category }}{% else %}—{% endif %}</span>
+  </div>
+</div>
+
+{% if by_category %}
+<div class="card table-wrap mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);"><h3>By Category</h3></div>
+  <table class="gv-table">
+    <thead><tr><th>Category</th><th class="num">Entries</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+      {% for row in by_category %}
+      <tr>
+        <td data-label="Category" class="strong">{{ row.category }}</td>
+        <td data-label="Entries" class="num">{{ row.n }}</td>
+        <td data-label="Amount" class="num strong">₱{{ row.total|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<form method="get" class="toolbar-card no-print">
+  {% for name, value in branch_switch_carry %}{% if name != 'category' and value %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}{% endfor %}
+  {% if branch_filter %}<input type="hidden" name="branch" value="{{ branch_filter }}">{% endif %}
+  <div class="toolbar-actions">
+    <label class="sr-only" for="expense-category">Category</label>
+    <select id="expense-category" name="category" onchange="this.form.submit()">
+      <option value="">All categories</option>
+      {% for value, label in categories %}
+      <option value="{{ value }}"{% if category_filter == value %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit" class="btn">Filter</button></noscript>
+  </div>
+</form>
+
+<div class="card table-wrap">
+  <table class="gv-table">
+    <thead>
+      <tr><th>Date</th><th>Branch</th><th>Category</th><th>Description</th>
+          <th class="num">Amount</th><th>Recorded by</th><th>Receipt</th><th class="end no-print">Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for e in expenses %}
+      <tr>
+        <td data-label="Date" class="gv-meta">{{ e.date|date:"Y-m-d" }}</td>
+        <td data-label="Branch">{{ e.branch.branch_name }}</td>
+        <td data-label="Category"><span class="tag">{{ e.category }}</span></td>
+        <td data-label="Description">{{ e.description|default:"—" }}</td>
+        <td data-label="Amount" class="num strong">₱{{ e.amount|floatformat:2 }}</td>
+        <td data-label="Recorded by" class="gv-meta">{% if e.recorded_by %}{{ e.recorded_by.get_full_name|default:e.recorded_by.username }}{% else %}—{% endif %}</td>
+        <td data-label="Receipt">{% if e.receipt %}<a href="{% url 'expense_receipt' e.pk %}" target="_blank" rel="noopener">View</a>{% else %}—{% endif %}</td>
+        <td data-label="Actions" class="no-print">
+          <span class="row-actions">
+            {% if module_actions.expenses.edit %}
+            <a class="icon-btn icon-btn-action" href="{% url 'expense_edit' e.pk %}"
+               title="Edit" aria-label="Edit {{ e.category }} expense of {{ e.amount }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></svg></a>
+            {% endif %}
+            {% if module_actions.expenses.delete %}
+            <form method="POST" action="{% url 'expense_delete' e.pk %}" style="display:inline;"
+                  data-confirm="You are about to delete the {{ e.category }} expense of ₱{{ e.amount|floatformat:2 }} dated {{ e.date|date:'Y-m-d' }} ({{ e.branch.branch_name }}). Profit for that period will change. This cannot be undone."
+                  data-confirm-title="Delete expense?"
+                  data-confirm-variant="danger"
+                  data-confirm-ok="Delete expense">
+              {% csrf_token %}
+              <button type="submit" class="icon-btn icon-btn-danger"
+                      title="Delete" aria-label="Delete {{ e.category }} expense of {{ e.amount }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+            </form>
+            {% endif %}
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8"><div class="empty">
+        <span class="glyph">{% include "partials/_empty_icon.html" with icon="peso" %}</span>
+        <h3>No expenses recorded</h3>
+        <p>Nothing falls in this period{% if category_filter %} for {{ category_filter }}{% endif %}. Pick another range, or record an expense.</p>
+      </div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% pager page_obj noun="expense" %}
+{% endblock %}

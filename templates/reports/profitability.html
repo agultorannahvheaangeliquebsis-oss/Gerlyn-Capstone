@@ -1,0 +1,326 @@
+{% extends "internal_base.html" %}
+{% load money %}
+{% block title %}Profitability Report{% endblock %}
+{% block page_subtitle %}Reports{% endblock %}
+{% block branch_scope %}{% if filter_branch %}{{ filter_branch.branch_name }}{% elif user_branch %}{{ user_branch.branch_name }}{% else %}All Branches{% endif %}{% endblock %}
+{% block branch_chip %}{% include "partials/_branch_switch.html" %}{% endblock %}
+
+{% block extra_css %}
+<style>
+  {% comment %}
+  Page-scoped (pf- prefix), built from the shared tokens. Green and red are the
+  app's own status tokens (--ok-*, --danger-*); the verdict also says
+  "Profit" / "Loss" in words and carries an arrow, so colour is never the only
+  signal. The chart colours are the dataviz skill's categorical slots 1-4.
+  {% endcomment %}
+  .pf-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s6); padding: var(--s6);
+    border-radius: var(--r-card); border: 1px solid var(--line); margin-bottom: var(--s6); container-type: inline-size; }
+  .pf-verdict--profit { background: var(--ok-bg); border-color: var(--ok-dot); color: var(--ok-fg); }
+  .pf-verdict--loss { background: var(--danger-bg); border-color: var(--danger-dot); color: var(--danger-fg); }
+  .pf-verdict--breakeven { background: var(--line-soft); color: var(--ink-700); }
+  .pf-verdict-icon { flex: none; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: #fff; }
+  .pf-verdict-icon svg { width: 26px; height: 26px; }
+  .pf-verdict-word { font: 700 13px/1 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; }
+  .pf-verdict-figure { font: 700 clamp(24px, 9cqi, 40px)/1.1 var(--font-sans); overflow-wrap: anywhere; margin: 4px 0; }
+  .pf-verdict-meta { font: 400 14px/1.4 var(--font-sans); }
+  .pf-verdict-side { margin-left: auto; text-align: right; font: 400 14px/1.5 var(--font-sans); }
+  .pf-verdict-side strong { font-weight: 700; }
+  .pf-note { margin-bottom: var(--s6); }
+  .pf-note details { margin-top: var(--s2); }
+  .pf-note summary { cursor: pointer; font-weight: 600; }
+  .pf-note ul { margin: var(--s2) 0 0 18px; }
+  .pf-pnl td.label-cell { padding-left: var(--s6); color: var(--ink-600); }
+  .pf-pnl tr.subtotal td { font-weight: 700; border-top: 1px solid var(--line); background: var(--surface-2); }
+  .pf-pnl tr.final td { font-weight: 700; font-size: 1.05em; border-top: 2px solid var(--ink-900); }
+  .pf-pnl tr.info td { color: var(--ink-600); font-style: italic; }
+  /* Below 860px the table stacks into cards (label above each value); a cell with
+     nothing to say would leave a bare label, so it is dropped there. */
+  @media (max-width: 860px) { .pf-pnl td:empty { display: none; } }
+  .pf-profit { color: var(--ok-fg); font-weight: 700; }
+  .pf-loss { color: var(--danger-fg); font-weight: 700; }
+  .pf-trend { position: relative; }
+  .pf-trend svg { display: block; width: 100%; height: auto; max-height: 320px; }
+  .pf-legend { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s6); list-style: none; margin: 0 0 var(--s3); padding: 0;
+    font: 400 13px/1.2 var(--font-sans); color: var(--ink-700); }
+  .pf-legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .pf-key { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .pf-key--line { height: 2px; width: 16px; border-radius: 1px; }
+  .pf-grid { stroke: var(--line); stroke-width: 1; }
+  .pf-axis { stroke: var(--ink-400); stroke-width: 1; }
+  .pf-tick { font: 400 11px var(--font-sans); fill: var(--ink-600); }
+  .pf-month { font: 400 11px var(--font-sans); fill: var(--ink-600); }
+  .pf-panel-title { margin: 0 0 var(--s2); font: 600 14px/1.3 var(--font-sans); color: var(--ink-900); }
+  .pf-value { font: 700 11px var(--font-sans); fill: var(--ink-900); font-variant-numeric: tabular-nums; }
+  .pf-hit { fill: transparent; cursor: crosshair; }
+  .pf-hit:hover, .pf-hit:focus { fill: rgba(23, 37, 30, .05); outline: none; }
+  .pf-tip { position: absolute; z-index: 5; pointer-events: none; background: var(--ink-900); color: #fff; border-radius: 8px;
+    padding: 8px 10px; font: 400 12px/1.5 var(--font-sans); min-width: 190px; box-shadow: var(--glass-shadow); }
+  .pf-tip[hidden] { display: none; }
+  .pf-tip b { display: block; margin-bottom: 4px; }
+  .pf-tip div { display: flex; justify-content: space-between; gap: var(--s4); font-variant-numeric: tabular-nums; }
+  .pf-tip i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .pf-footnote { margin: var(--s3) 0 0; }
+  @media print { .pf-tip { display: none; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Profitability Report</h1>
+  </div>
+  {% include "_daterange.html" %}
+</div>
+
+{% include "reports/_tabs.html" with active="profitability" %}
+
+<form method="GET" class="toolbar-card no-print">
+  <div class="toolbar-actions">
+    {% include "reports/_export_buttons.html" with kind="profitability" %}
+  </div>
+</form>
+
+{% comment %}
+The verdict: one glance answers "are we making money?". Net profit is the whole
+statement below it read top to bottom -- sales, less refunds, less what the goods
+cost, less running costs.
+{% endcomment %}
+<div class="pf-verdict pf-verdict--{{ totals.status }}" role="status">
+  <span class="pf-verdict-icon" aria-hidden="true">
+    {% if totals.status == 'profit' %}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    {% elif totals.status == 'loss' %}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+    {% else %}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    {% endif %}
+  </span>
+  <div>
+    <div class="pf-verdict-word">{% if totals.status == 'profit' %}Profit{% elif totals.status == 'loss' %}Loss{% else %}Break-even{% endif %}</div>
+    <div class="pf-verdict-figure">{{ totals.net_profit|peso }}</div>
+    <div class="pf-verdict-meta">Net profit · {{ totals.label }} · {% if range_start %}{{ range_start|date:"j M Y" }} – {% endif %}{{ range_end|date:"j M Y" }}</div>
+  </div>
+  <div class="pf-verdict-side">
+    <div>Net margin <strong>{{ totals.net_margin|pct }}</strong></div>
+    <div>Gross margin <strong>{{ totals.gross_margin|pct }}</strong></div>
+  </div>
+</div>
+
+{% if notes %}
+<div class="banner banner-warning pf-note" role="note">
+  <span class="banner-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span>
+  <div class="banner-text">
+    {% for note in notes %}<div>{{ note }}</div>{% endfor %}
+    {% if result.missing_cost or result.removed_product_uncosted %}
+    <details>
+      <summary>Products with no cost price ({{ result.missing_product_count }})</summary>
+      <ul>
+        {% for p in result.missing_cost %}
+        <li>
+          {% if can_edit_products and module_actions.products.edit %}<a href="{% url 'product_edit' p.product_id %}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}
+          <span class="gv-meta">({{ p.sku }}) · {{ p.uncosted_units }} unit{{ p.uncosted_units|pluralize }} sold · {{ p.uncosted_revenue|peso }} in sales</span>
+        </li>
+        {% endfor %}
+        {% if result.removed_product_uncosted %}
+        <li>Products since removed from the catalog <span class="gv-meta">· {{ result.removed_product_uncosted }} unit{{ result.removed_product_uncosted|pluralize }} sold</span></li>
+        {% endif %}
+      </ul>
+      <p class="gv-meta" style="margin:var(--s2) 0 0;">Set a cost price on each product (Product Master List → Edit) and this report counts it straight away; deliveries received from now on keep it up to date.</p>
+    </details>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="kpi-row">
+  <div class="kpi-card">
+    <span class="label">Net Sales</span>
+    <span class="value">{{ totals.net_sales|peso }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Cost of Goods Sold</span>
+    <span class="value">{{ totals.cogs|peso }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Gross Profit</span>
+    <span class="value">{{ totals.gross_profit|peso }}</span>
+  </div>
+  <div class="kpi-card">
+    <span class="label">Total Expenses</span>
+    <span class="value">{{ totals.expenses|peso }}</span>
+  </div>
+</div>
+
+<div class="card table-wrap mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Profit &amp; Loss</h3>
+    <p class="gv-meta mb-0">Completed orders only. Procurement spend is shown for information and is not subtracted: stock bought becomes a cost when it is sold, through cost of goods sold.</p>
+  </div>
+  <table class="gv-table pf-pnl">
+    <thead><tr><th>Measure</th><th class="num">Amount</th><th class="num">% of net sales</th></tr></thead>
+    <tbody>
+      <tr><td data-label="Measure" class="strong">Gross sales</td><td data-label="Amount" class="num">{{ totals.gross_sales|peso }}</td><td data-label="% of net sales" class="num gv-meta"></td></tr>
+      <tr><td data-label="Measure" class="label-cell">Less: refunds (approved)</td><td data-label="Amount" class="num">{{ totals.refunds|peso }}</td><td data-label="% of net sales" class="num gv-meta"></td></tr>
+      <tr class="subtotal"><td data-label="Measure">Net sales</td><td data-label="Amount" class="num">{{ totals.net_sales|peso }}</td><td data-label="% of net sales" class="num">{% if totals.net_sales > 0 %}100.0%{% else %}—{% endif %}</td></tr>
+      <tr><td data-label="Measure" class="label-cell">Less: cost of goods sold</td><td data-label="Amount" class="num">{{ totals.cogs|peso }}</td><td data-label="% of net sales" class="num gv-meta"></td></tr>
+      <tr class="subtotal"><td data-label="Measure">Gross profit</td><td data-label="Amount" class="num {% if totals.gross_profit < 0 %}pf-loss{% endif %}">{{ totals.gross_profit|peso }}</td><td data-label="% of net sales" class="num">{{ totals.gross_margin|pct }}</td></tr>
+      {% for category, amount, share in result.expenses_by_category %}
+      <tr><td data-label="Measure" class="label-cell">Less: {{ category|lower }}</td><td data-label="Amount" class="num">{{ amount|peso }}</td><td data-label="% of net sales" class="num gv-meta"></td></tr>
+      {% endfor %}
+      <tr class="subtotal"><td data-label="Measure">Total expenses</td><td data-label="Amount" class="num">{{ totals.expenses|peso }}</td><td data-label="% of net sales" class="num"></td></tr>
+      <tr class="final"><td data-label="Measure">Net {% if totals.status == 'loss' %}loss{% else %}profit{% endif %}</td>
+        <td data-label="Amount" class="num {% if totals.status == 'profit' %}pf-profit{% elif totals.status == 'loss' %}pf-loss{% endif %}">{{ totals.net_profit|peso }}</td>
+        <td data-label="% of net sales" class="num {% if totals.status == 'profit' %}pf-profit{% elif totals.status == 'loss' %}pf-loss{% endif %}">{{ totals.net_margin|pct }}</td></tr>
+      <tr class="info"><td data-label="Measure">Procurement spend (information only, net of supplier returns)</td><td data-label="Amount" class="num">{{ result.procurement_spend|peso }}</td><td data-label="% of net sales" class="num"></td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% if result.show_comparison %}
+<div class="card table-wrap mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Branch Comparison</h3>
+    <p class="gv-meta mb-0">Every branch, for the selected period.</p>
+  </div>
+  <table class="gv-table">
+    <thead>
+      <tr><th>Branch</th><th class="num">Net sales</th><th class="num">COGS</th><th class="num">Gross profit</th>
+          <th class="num">Gross margin</th><th class="num">Expenses</th><th class="num">Net profit</th>
+          <th class="num">Net margin</th><th>Result</th></tr>
+    </thead>
+    <tbody>
+      {% for b in result.branches %}
+      <tr>
+        <td data-label="Branch" class="strong">{{ b.label }}</td>
+        <td data-label="Net sales" class="num">{{ b.net_sales|peso }}</td>
+        <td data-label="COGS" class="num">{{ b.cogs|peso }}</td>
+        <td data-label="Gross profit" class="num">{{ b.gross_profit|peso }}</td>
+        <td data-label="Gross margin" class="num">{{ b.gross_margin|pct }}</td>
+        <td data-label="Expenses" class="num">{{ b.expenses|peso }}</td>
+        <td data-label="Net profit" class="num strong {% if b.status == 'profit' %}pf-profit{% elif b.status == 'loss' %}pf-loss{% endif %}">{{ b.net_profit|peso }}</td>
+        <td data-label="Net margin" class="num">{{ b.net_margin|pct }}</td>
+        <td data-label="Result">{% if b.status == 'profit' %}<span class="pill pill-ok">Profit</span>{% elif b.status == 'loss' %}<span class="pill pill-danger">Loss</span>{% else %}<span class="pill pill-neutral">Break-even</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9"><div class="empty"><h3>No branches</h3></div></td></tr>
+      {% endfor %}
+    </tbody>
+    {% if result.branches|length > 1 %}
+    <tfoot>
+      <tr class="pf-total">
+        <td data-label="Branch" class="strong">All branches</td>
+        <td data-label="Net sales" class="num strong">{{ result.all_branches.net_sales|peso }}</td>
+        <td data-label="COGS" class="num strong">{{ result.all_branches.cogs|peso }}</td>
+        <td data-label="Gross profit" class="num strong">{{ result.all_branches.gross_profit|peso }}</td>
+        <td data-label="Gross margin" class="num strong">{{ result.all_branches.gross_margin|pct }}</td>
+        <td data-label="Expenses" class="num strong">{{ result.all_branches.expenses|peso }}</td>
+        <td data-label="Net profit" class="num strong {% if result.all_branches.status == 'profit' %}pf-profit{% elif result.all_branches.status == 'loss' %}pf-loss{% endif %}">{{ result.all_branches.net_profit|peso }}</td>
+        <td data-label="Net margin" class="num strong">{{ result.all_branches.net_margin|pct }}</td>
+        <td></td>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
+</div>
+{% endif %}
+
+<div class="card mb-6">
+  <div class="card-pad" style="border-bottom:1px solid var(--line);">
+    <h3>Monthly Trend</h3>
+    <p class="gv-meta mb-0">Net sales, cost of goods sold, expenses and net profit by month{% if result.months_trimmed %} — the latest {{ result.months|length }} months of the range{% endif %}.</p>
+  </div>
+  <div class="card-pad">
+    {% if chart %}
+    <div class="pf-trend" id="pf-trend">
+      <p class="pf-panel-title">Net sales, cost of goods sold and expenses</p>
+      <ul class="pf-legend" aria-label="Chart key">
+        {% for s in chart.series %}
+        <li><span class="pf-key" style="background:{{ s.colour }};"></span>{{ s.label }}</li>
+        {% endfor %}
+      </ul>
+      {% include "reports/_profit_panel.html" with p=chart.amounts name="net sales, cost of goods sold and expenses" summary=chart.summary %}
+
+      <p class="pf-panel-title" style="margin-top:var(--s6);">Net profit</p>
+      <ul class="pf-legend" aria-label="Chart key">
+        <li><span class="pf-key" style="background:{{ chart.profit_colour }};"></span>Profit</li>
+        <li><span class="pf-key" style="background:{{ chart.loss_colour }};"></span>Loss</li>
+      </ul>
+      {% include "reports/_profit_panel.html" with p=chart.profit name="net profit" summary=chart.summary %}
+      <div class="pf-tip" id="pf-tip" hidden></div>
+    </div>
+    {% endif %}
+
+    <div class="table-wrap" style="margin-top:var(--s4);">
+      <table class="gv-table">
+        <thead><tr><th>Month</th><th class="num">Net sales</th><th class="num">COGS</th><th class="num">Expenses</th><th class="num">Net profit</th></tr></thead>
+        <tbody>
+          {% for m in result.months %}
+          <tr>
+            <td data-label="Month" class="strong">{{ m.label }}{% if m.partial %}*{% endif %}</td>
+            <td data-label="Net sales" class="num">{{ m.net_sales|peso }}</td>
+            <td data-label="COGS" class="num">{{ m.cogs|peso }}</td>
+            <td data-label="Expenses" class="num">{{ m.expenses|peso }}</td>
+            <td data-label="Net profit" class="num strong {% if m.net_profit > 0 %}pf-profit{% elif m.net_profit < 0 %}pf-loss{% endif %}">{{ m.net_profit|peso }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5"><div class="empty"><h3>No activity in this period</h3></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if chart %}<p class="gv-meta pf-footnote">* Only part of this month falls inside the selected range.</p>{% endif %}
+  </div>
+</div>
+
+<div class="grid-2 mb-6" style="align-items:start;">
+  {% include "reports/_profit_products.html" with title="Most Profitable Products" rows=result.top_products empty_text="No fully costed product sold in this period." %}
+  {% include "reports/_profit_products.html" with title="Least Profitable Products" rows=result.bottom_products empty_text="No other fully costed product sold in this period." %}
+</div>
+<p class="gv-meta">Products are ranked by gross profit (net sales less cost of goods sold). A product whose cost is not fully known is left out of the ranking rather than shown as if it were free.</p>
+
+<script>
+(function () {
+  var wrap = document.getElementById('pf-trend');
+  var tip = document.getElementById('pf-tip');
+  if (!wrap || !tip) { return; }
+  var rows = [
+    ['Net sales', 'netSales', '#2a78d6'], ['Cost of goods sold', 'cogs', '#eb6834'],
+    ['Expenses', 'expenses', '#1baf7a'], ['Net profit', 'netProfit', null]
+  ];
+  function show(rect) {
+    tip.textContent = '';
+    var head = document.createElement('b');
+    head.textContent = rect.dataset.month;
+    tip.appendChild(head);
+    rows.forEach(function (r) {
+      var line = document.createElement('div');
+      var name = document.createElement('span');
+      var key = document.createElement('i');
+      key.style.background = r[2] || rect.dataset.profitColour;
+      name.appendChild(key);
+      name.appendChild(document.createTextNode(r[0]));
+      var value = document.createElement('strong');
+      value.textContent = rect.dataset[r[1]];
+      line.appendChild(name);
+      line.appendChild(value);
+      tip.appendChild(line);
+    });
+    tip.hidden = false;
+    var box = wrap.getBoundingClientRect();
+    var at = rect.getBoundingClientRect();
+    var left = at.left - box.left + at.width / 2 - tip.offsetWidth / 2;
+    left = Math.max(0, Math.min(left, box.width - tip.offsetWidth));
+    tip.style.left = left + 'px';
+    tip.style.top = Math.max(0, at.top - box.top + 8) + 'px';
+  }
+  function hide() { tip.hidden = true; }
+  wrap.querySelectorAll('.pf-hit').forEach(function (rect) {
+    // Aim at a month in either chart; the readout always lists all four figures.
+    rect.addEventListener('pointerenter', function () { show(rect); });
+    rect.addEventListener('focus', function () { show(rect); });
+    rect.addEventListener('pointerleave', hide);
+    rect.addEventListener('blur', hide);
+  });
+})();
+</script>
+{% endblock %}

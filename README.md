@@ -22,7 +22,8 @@ five core business processes identified in the process analysis:
 | **Billing** | A billing record per sale; payment method + status recorded, GCash reference & proof upload |
 | **Inventory** | Product master list, per-branch stock, FEFO batches/expiry, withdrawal slips with receipt acknowledgment, damaged-product reports with photo evidence |
 | **Procurement** | Suppliers, purchase orders, and deliveries that update stock only after receipt validation |
-| **Reporting** | Dashboard + Sales/Inventory/Procurement/Billing reports, CSV, PDF & Excel export (each PDF/Excel opens with a Summary), consolidated or per-branch |
+| **Reporting** | Dashboard + Sales/Inventory/Procurement/Billing/Profitability reports, CSV, PDF & Excel export (each PDF/Excel opens with a Summary), consolidated or per-branch |
+| **Expenses & profit** | Operating expenses (rent, utilities, salaries ...) recorded by the Owner / Branch Managers; a Profitability report (sales - refunds - cost of goods - expenses) and a Net Profit card on the Dashboard |
 
 **Roles (RBAC):** Owner · Branch Manager · Staff · Supplier · Customer.
 Managers and staff are scoped to their own branch; the Owner sees every branch.
@@ -270,7 +271,8 @@ views can never drift apart.
 | `procurement` | Suppliers, purchase orders, deliveries |
 | `orders` | Customer storefront (catalog, cart, checkout, "Report a problem" on a received order) |
 | `damage_reports` | Damaged Product Reports: photo evidence, manager review, stock / refund / supplier-return follow-through |
-| `reports` | Dashboard, reports, CSV / PDF / Excel export (`exports.py`, `export_views.py`) |
+| `expenses` | Operating expenses (Owner and Branch Manager only) feeding the Profitability report |
+| `reports` | Dashboard, reports, CSV / PDF / Excel export (`exports.py`, `export_views.py`), Profitability (`profitability.py`) |
 | `audit` | Append-only Audit Log of every data change (System & Monitoring) |
 | `backups` | Encrypted off-site backups to Backblaze, restore check, status page (System & Monitoring) |
 | `offline_sync` | Server ledger + endpoints behind the offline queue (see "Offline mode") |
@@ -299,6 +301,18 @@ views can never drift apart.
   Every status change is in the Audit Log and notifies the reporter; new reports notify the
   Owner and branch Manager. The Inventory Report has a *Damaged Goods* section (units and
   estimated loss per product and branch).
+- **Profit and expenses** — *Reports → Profitability* shows, for a date range and branch,
+  gross sales less approved refunds (net sales), less cost of goods sold, less expenses =
+  net profit, with a green/red verdict, a per-branch comparison (Owner), a monthly trend and
+  the ten most and least profitable products; procurement spend is shown for information and
+  never subtracted. Cost of goods uses `SalesItem.unit_cost`, frozen when the stock left the
+  shelf from the batch's purchase-order price (else the product's latest `cost_price`), so a
+  later supplier price change never rewrites past profit; a product with no cost is listed,
+  not counted as free. Expenses are entered under *System & Monitoring → Expenses* by the
+  Owner or a Branch Manager (own branch); Staff cannot open either. After deploying run
+  `python manage.py migrate`, then optionally `python manage.py backfill_sale_costs` to
+  freeze costs on sales recorded before this existed (`--dry-run` first). Definitions:
+  `docs/METRICS.md` → Profitability.
 - **Branch scoping** — `core/scoping.py` filters every queryset server-side. The UI's
   branch dropdown is never the only guard.
 - **Stock moves exactly once** — walk-in sales deduct at the point of sale; online
@@ -657,7 +671,8 @@ private originals are confirmed. Run `python manage.py migrate` as part of the
 deploy.
 
 Back-office pages, sensitive API results, CSV/XLSX/PDF exports, payment proofs, avatars,
-and damage-report photos (`media/damage_reports/`, never served from `/media/`)
+damage-report photos and expense receipts (`media/damage_reports/`, `media/expense_receipts/`;
+never served from `/media/`)
 require a current session and the applicable role, branch, or record ownership.
 Authenticated responses carry `Cache-Control: no-store`. Test copied links in
 a signed-out browser and under a second role after deployment, using test data.

@@ -32,6 +32,7 @@ from core.module_permissions import (
 from core.scoping import branch_for_user, branch_ids_for_user, scope_queryset, user_can_access_branch
 from core.timebounds import local_range_bounds, range_from_request
 from inventory.alerts import stock_status
+from inventory.costing import CostResolver, stamp_sale_item_cost
 from inventory.models import Batch, Inventory, Product, StockMovement
 from audit import context as audit_context
 
@@ -1702,6 +1703,7 @@ def _deduct_stock(txn, user):
     catalog can never have stock to deduct (there is no Inventory row left to
     identify), so it always fails this same check rather than crashing on it.
     """
+    cost_resolver = CostResolver()
     for item in txn.items.select_related('product').all():
         # available_qty nets out anything past its expiry_date — stock that
         # expired after the order was placed but before it was fulfilled must
@@ -1733,6 +1735,10 @@ def _deduct_stock(txn, user):
             SalesItemBatchConsumption(sales_item=item, batch=batch, quantity_taken=taken)
             for batch, taken in consumed
         ])
+        # Freeze what these units cost while we still know which lots they came
+        # from -- the Profitability report's cost of goods sold reads this, so
+        # a later change to a supplier price cannot rewrite today's margin.
+        stamp_sale_item_cost(item, consumed, cost_resolver)
         StockMovement.objects.create(
             inventory=inv,
             location_type=StockMovement.LocationType.FLOOR,

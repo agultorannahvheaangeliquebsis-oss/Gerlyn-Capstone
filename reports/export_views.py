@@ -23,6 +23,7 @@ _REPORT_PAGE = {
     'billing': 'billing_report',
     'inventory': 'inventory_report',
     'procurement': 'procurement_report',
+    'profitability': 'profitability_report',
 }
 
 

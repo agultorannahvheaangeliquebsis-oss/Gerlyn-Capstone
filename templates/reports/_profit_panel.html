@@ -1,0 +1,24 @@
+{% comment %}
+One panel of the Profitability trend chart (reports/profit_chart.py describes
+it). Context: p (the panel), name (what it plots), summary (every month in
+words, for screen readers). The tooltip script in profitability.html reads the
+data-* attributes on each .pf-hit.
+{% endcomment %}
+<svg viewBox="0 0 {{ p.width }} {{ p.height }}" role="img" aria-label="Monthly {{ name }}. {{ summary }}">
+  {% for t in p.ticks %}
+  <line class="{% if t.zero %}pf-axis{% else %}pf-grid{% endif %}" x1="{{ p.left }}" x2="{{ p.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+  <text class="pf-tick" x="{{ p.left|add:'-8' }}" y="{{ t.y }}" text-anchor="end" dominant-baseline="middle">{{ t.label }}</text>
+  {% endfor %}
+  {% for c in p.columns %}
+  {% for bar in c.bars %}{% if bar.path %}<path d="{{ bar.path }}" fill="{{ bar.colour }}"/>{% endif %}{% endfor %}
+  {% if c.value_label %}<text class="pf-value" x="{{ c.value_label.x }}" y="{{ c.value_label.y }}" text-anchor="middle">{{ c.value_label.text }}</text>{% endif %}
+  <text class="pf-month" x="{{ c.centre }}" y="{{ p.label_y }}" text-anchor="middle">{{ c.short }}{% if c.partial %}*{% endif %}</text>
+  {% endfor %}
+  {% for c in p.columns %}
+  <rect class="pf-hit" x="{{ c.hit.x }}" y="{{ c.hit.y }}" width="{{ c.hit.w }}" height="{{ c.hit.h }}" tabindex="0"
+        data-month="{{ c.label }}" data-net-sales="{{ c.values.net_sales }}" data-cogs="{{ c.values.cogs }}"
+        data-expenses="{{ c.values.expenses }}" data-net-profit="{{ c.values.net_profit }}"
+        data-profit-colour="{{ c.profit_colour }}"
+        aria-label="{{ c.label }}: net sales {{ c.values.net_sales }}, cost of goods {{ c.values.cogs }}, expenses {{ c.values.expenses }}, net profit {{ c.values.net_profit }}"/>
+  {% endfor %}
+</svg>

@@ -26,6 +26,7 @@ def branch_deletion_blockers(branch):
     from inventory.models import (
         Batch, Inventory, OpeningStockImportRow, StockTransfer, WarehouseStock,
     )
+    from expenses.models import Expense
     from procurement.models import Procurement, SupplierReturn
     from sales.models import PosSalesImport, SalesTransaction
 
@@ -48,6 +49,7 @@ def branch_deletion_blockers(branch):
         ('POS import history', PosSalesImport.objects.filter(branch=branch)),
         ('procurement history', Procurement.objects.filter(branch=branch)),
         ('supplier return history', SupplierReturn.objects.filter(branch=branch)),
+        ('expense records', Expense.objects.filter(branch=branch)),
         ('opening-stock history', OpeningStockImportRow.objects.filter(branch=branch)),
     )
     return [label for label, queryset in checks if queryset.exists()]

@@ -5,9 +5,9 @@ from django.http import JsonResponse
 from django.utils import timezone
 
 from core.module_permissions import (
+    MANAGEMENT_ONLY_MODULES,
     MODULE_ACTION_LABELS,
     REPORT_ROLES,
-    REPORTS,
     URL_NAME_TO_MODULE,
     required_action_for_request,
     user_can_perform_module_action,
@@ -71,11 +71,13 @@ class ModulePermissionMiddleware:
         # account carries: answer with the styled 403 page (not a flash
         # redirect that would imply the Owner could unlock it).
         if (
-            module_code == REPORTS
+            module_code in MANAGEMENT_ONLY_MODULES
             and user.role not in REPORT_ROLES
             and not request.path.startswith('/api/')
         ):
-            raise PermissionDenied('Reports are limited to the Owner and Branch Managers.')
+            raise PermissionDenied(
+                'Reports and expenses are limited to the Owner and Branch Managers.'
+            )
 
         action = required_action_for_request(url_name, request.method)
         if not user_can_perform_module_action(user, module_code, action):

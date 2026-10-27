@@ -23,11 +23,15 @@ BILLING = 'billing'
 PROCUREMENT = 'procurement'
 DELIVERIES = 'deliveries'
 REPORTS = 'reports'
+EXPENSES = 'expenses'
 
 # Roles allowed to see management reports (mirrors
 # core.permissions.MANAGEMENT_REPORT_ROLES, repeated as plain strings because
-# core.permissions imports DRF and this module is kept dependency-free).
+# core.permissions imports DRF and this module is kept dependency-free). The
+# Expenses module is held to the same roles: it feeds the profit report, and
+# the business's costs are not a Staff matter whatever an account is granted.
 REPORT_ROLES = ('OWNER', 'BRANCH_MANAGER')
+MANAGEMENT_ONLY_MODULES = (REPORTS, EXPENSES)
 
 VIEW = 'view'
 ADD = 'add'
@@ -219,8 +223,19 @@ MODULE_PERMISSION_REGISTRY = {
             'procurement_report', 'billing_report', 'export_csv',
             'api-reports-dashboard', 'api-reports-sales',
             'api-reports-inventory', 'api-reports-procurement',
+            'profitability_report',
         ],
         ADD: [], EDIT: [], DELETE: [],
+    },
+    # Operating expenses (rent, utilities, salaries ...). Owner and Branch
+    # Manager only -- capped to REPORT_ROLES below, so a grant on a Staff
+    # account opens nothing. The receipt photo is part of viewing an expense.
+    EXPENSES: {
+        'label': 'Expenses',
+        VIEW: ['expense_list', 'expense_receipt'],
+        ADD: ['expense_add'],
+        EDIT: ['expense_edit'],
+        DELETE: ['expense_delete'],
     },
 }
 
@@ -268,6 +283,7 @@ ROLE_DEFAULT_ACTIONS = {
         PROCUREMENT: [ADD, EDIT, DELETE],
         DELIVERIES: [ADD, EDIT],
         REPORTS: [],
+        EXPENSES: [ADD, EDIT, DELETE],
     },
     'STAFF': {
         PRODUCTS: [],
@@ -286,6 +302,7 @@ ROLE_DEFAULT_ACTIONS = {
         PROCUREMENT: [],
         DELIVERIES: [EDIT],
         REPORTS: [],
+        EXPENSES: [],
     },
     # Supplier/customer portals have their own action-level role checks.  The
     # entries here still describe their matrix defaults for role switching and
@@ -411,7 +428,7 @@ def user_can_perform_module_action(user, module_code, action=VIEW):
     # "Owner/Supplier/Customer always True" rule below would advertise the
     # Reports link to a Supplier or Customer, and an Owner-granted View on
     # Staff would light it up for a role the report views reject.
-    if module_code == REPORTS and role not in REPORT_ROLES:
+    if module_code in MANAGEMENT_ONLY_MODULES and role not in REPORT_ROLES:
         return False
     if role not in ('STAFF', 'BRANCH_MANAGER'):
         return True
