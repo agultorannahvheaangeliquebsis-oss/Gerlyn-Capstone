@@ -65,7 +65,7 @@ heading changing every six seconds.
         <span class="banner-cue">Start shopping <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></span>
       </a>
 
-      <a class="banner-slide" href="{% url 'orders:select_branch' %}" data-slide>
+      <a class="banner-slide" href="{% url 'orders:select_branch' %}?mode=manual" data-slide>
         <span class="eyebrow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
           {% if nav_branches %}{{ nav_branches|length }} branch{{ nav_branches|length|pluralize:"es" }}{% else %}Our branches{% endif %}

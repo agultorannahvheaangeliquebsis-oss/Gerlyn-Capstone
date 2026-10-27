@@ -11,11 +11,11 @@ That made two different orders identical in the database:
 `fulfillment_type` is now an explicit, required choice, and the address is
 validated against it: Delivery must carry one, Pickup never does.
 
-The address itself is no longer read from the checkout form — there is no
-input for it. A Delivery order ships to the account's default Address (set
-at registration or in Settings), which checkout shows read-only. So a
-Delivery order is refused when the account has NO saved address, and the
-address written onto the order is the saved one, never anything in the POST.
+The address is the account's default Address (set at registration or in
+Settings) unless the shopper types one for this order (see
+orders.tests_delivery_location). A Delivery order is refused when it has
+neither a saved address nor a complete typed one, and a field that is not part
+of the form (`delivery_address`) is never read from the POST.
 
 The choice also decides who may later apply the statutory PWD/Senior
 discount (F-04 — staff can only sight an ID in person, so a Delivery order
@@ -32,6 +32,10 @@ from accounts.models import Address, User
 from branches.models import Branch
 from inventory.models import Inventory, Product
 from sales.models import SalesTransaction
+
+from .delivery import INCOMPLETE_ADDRESS
+
+CONTACT = '0917 123 4567'
 
 
 class CheckoutFulfillmentTypeTests(TestCase):
@@ -81,16 +85,11 @@ class CheckoutFulfillmentTypeTests(TestCase):
         return [str(m) for m in get_messages(response.wsgi_request)]
 
     # ------------------------------------------------------------ delivery
-    def test_delivery_is_refused_when_the_account_has_no_saved_address(self):
+    def test_delivery_is_refused_with_no_saved_address_and_nothing_typed(self):
         response = self.check_out(fulfillment_type='Delivery')
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
-        self.assertIn(
-            'Add a delivery address to your account before placing a delivery '
-            'order — open Settings then Addresses. Or choose Pickup to collect '
-            'this order at the branch.',
-            self.messages(response),
-        )
+        self.assertIn(INCOMPLETE_ADDRESS, self.messages(response))
         # The cart survives the rejection — the shopper adds an address and
         # comes back, they do not start over.
         self.assertEqual(
@@ -106,18 +105,14 @@ class CheckoutFulfillmentTypeTests(TestCase):
         )
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
-        self.assertIn(
-            'Add a delivery address to your account before placing a delivery '
-            'order — open Settings then Addresses. Or choose Pickup to collect '
-            'this order at the branch.',
-            self.messages(response),
-        )
+        self.assertIn(INCOMPLETE_ADDRESS, self.messages(response))
 
     def test_a_delivery_ships_to_the_saved_default_address(self):
         self.save_address(text='12 Real St, Baliuag')
 
         self.check_out(
             fulfillment_type='Delivery',
+            addr_contact=CONTACT,
             # Ignored — the saved address is authoritative.
             delivery_address='99 Tamper Ave, Manila',
         )

@@ -257,6 +257,20 @@ window.AddressPicker = (function () {
     };
   }
 
+  // The place NAMES behind the codes collectValues() returns. The checkout's
+  // "pin on map" step needs words to put in its typed-address fields.
+  function selectedLabel(select) {
+    var option = select.options[select.selectedIndex];
+    return option && option.value ? option.text : '';
+  }
+
+  function collectLabels() {
+    return {
+      region: selectedLabel(els.region), province: selectedLabel(els.province),
+      city: selectedLabel(els.city), barangay: selectedLabel(els.barangay)
+    };
+  }
+
   function showError(message, focus) {
     var box = document.getElementById('ap-error');
     box.textContent = message;
@@ -281,7 +295,7 @@ window.AddressPicker = (function () {
     }
     clearError();
     if (currentOptions.onConfirm) {
-      currentOptions.onConfirm(collectValues());
+      currentOptions.onConfirm(collectValues(), collectLabels());
       close();
     } else if (currentOptions.formAction) {
       els.form.action = currentOptions.formAction;

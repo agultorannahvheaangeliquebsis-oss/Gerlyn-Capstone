@@ -1,18 +1,127 @@
 {% extends "public_base.html" %}
-{% block title %}Fulfillment location — GERLYN{% endblock %}
+{% block title %}Choose your branch — GERLYN{% endblock %}
 
 {% block content %}
 <div class="shop-wrap section" style="max-width:640px;">
   <div class="section-head">
     <div>
-      <h2>Find your fulfillment branch</h2>
+      <h2>Where do you want to shop?</h2>
       <p class="gv-meta mb-0">
-        We use your location only to find the nearest active branch that can
-        fulfill your whole cart. One order always stays with one branch.
+        One order always comes from one branch. Choose a branch yourself, or
+        let us find the nearest one that has everything in your cart.
       </p>
     </div>
   </div>
 
+  {% comment %}
+  Plain links, not a JavaScript toggle: the two ways of picking a branch are
+  two server-rendered views of this page, so each works without scripts and
+  can be linked to (the "Choose a branch" links elsewhere in the shop pass
+  ?mode=manual).
+  {% endcomment %}
+  <nav class="branch-mode" aria-label="How to pick a branch">
+    <a href="?mode=auto&amp;next={{ next|urlencode }}" {% if mode == 'auto' %}class="is-active" aria-current="page"{% endif %}>Nearest to me</a>
+    <a href="?mode=manual&amp;next={{ next|urlencode }}" {% if mode == 'manual' %}class="is-active" aria-current="page"{% endif %}>I'll choose a branch</a>
+  </nav>
+
+  {% if mode == 'manual' %}
+  {# ===================== I'll choose a branch ===================== #}
+  {% if conflict %}
+  <div class="card card-pad stack branch-conflict" role="alertdialog" aria-labelledby="branch-conflict-heading">
+    <h3 id="branch-conflict-heading">{{ conflict.branch.branch_name }} can't cover your whole cart</h3>
+    <ul class="branch-conflict-list">
+      {% for s in conflict.short %}
+      <li><strong>{{ s.name }}</strong>: you have {{ s.needed }} in your cart, {{ s.available }} left there.</li>
+      {% endfor %}
+    </ul>
+    <p class="gv-meta mb-0">
+      We never split one order across branches. Choose what to do with those
+      items. Anything with none left is removed either way.
+    </p>
+    <div class="branch-conflict-actions">
+      <form method="POST">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="choose">
+        <input type="hidden" name="branch_id" value="{{ conflict.branch.pk }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" name="fix" value="reduce" class="btn btn-primary">Reduce quantities and switch</button>
+      </form>
+      <form method="POST">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="choose">
+        <input type="hidden" name="branch_id" value="{{ conflict.branch.pk }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" name="fix" value="remove" class="btn">Remove those items and switch</button>
+      </form>
+      <a class="btn" href="?mode=manual&amp;next={{ next|urlencode }}">{% if current_branch %}Stay at {{ current_branch.branch_name }}{% else %}Cancel{% endif %}</a>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if is_manual and current_branch %}
+  <div class="card card-pad stack" aria-labelledby="chosen-branch-heading">
+    <div>
+      <h3 id="chosen-branch-heading">You are shopping at {{ current_branch.branch_name }}</h3>
+      <p class="gv-meta mb-0">Prices and stock come from this branch, and your cart stays here until you change it.</p>
+    </div>
+    <div>
+      <a class="btn btn-primary" href="{{ continue_url }}">Continue shopping</a>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="branch-list" id="branch-options">
+    {% for o in branch_options %}
+    <div class="branch-card{% if current_branch and o.branch.pk == current_branch.pk %} is-current{% endif %}">
+      <div class="branch-card-main">
+        <h4>
+          {{ o.branch.branch_name }}
+          {% if current_branch and o.branch.pk == current_branch.pk %}
+            <span class="branch-tag">{% if is_manual %}You chose this{% else %}Assigned for you{% endif %}</span>
+          {% endif %}
+        </h4>
+        <p class="gv-meta mb-0">
+          {{ o.branch.location }}{% if o.distance_km != None %} · about {{ o.distance_km|floatformat:1 }} km from {{ distance_origin }}{% endif %}
+        </p>
+        {% if cart_line_count %}
+        <div class="branch-chips">
+          {% if o.can_fulfill %}
+            <span class="branch-chip branch-chip--ok">Has all {{ cart_line_count }} item{{ cart_line_count|pluralize }} in your cart</span>
+          {% else %}
+            {% for s in o.short %}
+            <span class="branch-chip branch-chip--short">Short on {{ s.name }}: you need {{ s.needed }}, {{ s.available }} left</span>
+            {% endfor %}
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <form method="POST" class="branch-card-action">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="choose">
+        <input type="hidden" name="branch_id" value="{{ o.branch.pk }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        {% if current_branch and o.branch.pk == current_branch.pk and is_manual %}
+          <button type="button" class="btn" disabled>Shopping here</button>
+        {% elif current_branch and o.branch.pk == current_branch.pk %}
+          <button type="submit" class="btn btn-primary">Choose this branch</button>
+        {% elif o.can_fulfill %}
+          <button type="submit" class="btn btn-primary">Shop at {{ o.branch.branch_name }}</button>
+        {% else %}
+          <button type="submit" class="btn">Shop here instead</button>
+        {% endif %}
+      </form>
+    </div>
+    {% empty %}
+    <div class="card card-pad"><p class="gv-meta mb-0">No branch is open for online orders right now. Please check back soon.</p></div>
+    {% endfor %}
+  </div>
+  <p class="gv-meta">
+    {% if distance_origin %}Distances are measured from {{ distance_origin }}.{% else %}Distances are hidden because we have no location or saved address to measure from.{% endif %}
+    Branches that are closed are not listed.
+  </p>
+
+  {% else %}
+  {# ===================== Nearest to me ===================== #}
   {% if current_branch %}
   <div class="card card-pad stack" aria-labelledby="location-result-heading">
     <div>
@@ -69,7 +178,13 @@
   {% endif %}
 
   <div class="card card-pad stack">
-    <h3>Use current location</h3>
+    <h3>Find the nearest branch</h3>
+    {% if is_manual %}
+    <p class="gv-meta mb-0">
+      You chose {{ current_branch.branch_name }} yourself. Pressing either
+      button below switches back to automatic selection.
+    </p>
+    {% endif %}
     <p class="gv-meta mb-0">
       Your browser will ask permission only after you press the button. The
       store retains the coordinates only in your private session for this cart;
@@ -83,38 +198,37 @@
       <input type="hidden" name="longitude" id="fulfillment-longitude" value="">
       <input type="hidden" name="accuracy" id="fulfillment-accuracy" value="">
       {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-      <button type="button" class="btn btn-primary" id="use-current-location">Use current location</button>
+      <button type="button" class="btn btn-primary" id="use-current-location">Use my current location</button>
       {% comment %}
-      Same POST as the no-address fallback below (location_status=fallback)
-      — customer_fulfillment_location already prefers the default saved
-      Address over the store fallback when no browser location is shared.
-      This is just that path named up front, so a shopper does not have to
-      hit the geolocation prompt (or its denial) first to reach it.
+      "Don't share my location" is a plain submit, so it never touches the
+      browser's geolocation: the server just forgets any location held for
+      this session and resolves from the saved address (or the store
+      fallback). It is the same POST the denied-permission path below ends in.
       {% endcomment %}
-      {% if has_saved_address %}
-      <button type="submit" class="btn" name="location_status" value="fallback">
-        Use my saved address
-      </button>
-      {% else %}
-      <button type="submit" class="btn" name="location_status" value="fallback">
-        Continue without sharing location
-      </button>
-      {% endif %}
+      <button type="submit" class="btn" name="location_status" value="fallback" id="decline-location">Don't share my location</button>
     </form>
     <p class="gv-meta mb-0" id="fulfillment-location-feedback" role="status" aria-live="polite">
       {% if has_saved_address %}
-        If you skip sharing your location, we use your saved address's
-        city/barangay instead. Checkout remains available.
+        If you don't share your location, we use your saved address's
+        city and barangay instead. Checkout remains available.
       {% else %}
-        If permission is denied or unavailable, we use your saved address's
-        city/barangay, then the configured store fallback. Checkout remains available.
+        If you don't share your location, or your browser can't, we use the
+        store fallback. Checkout remains available.
       {% endif %}
+      You can also <a href="?mode=manual&amp;next={{ next|urlencode }}">choose a branch yourself</a>.
+    </p>
+    <p class="gv-meta mb-0 privacy-note" id="location-privacy-note">
+      Your location is used only to pick a branch and deliver your order.
+      Sharing it is optional and you can remove it at any time, in line with
+      the Data Privacy Act of 2012 (RA 10173).
     </p>
   </div>
+  {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
+{% if mode == 'auto' %}
 <script>
 (function () {
   'use strict';
@@ -128,16 +242,19 @@
   var retry = document.getElementById('retry-current-location');
   if (!button || !form) return;
 
-  function useFallback(message) {
+  // Permission denied, timed out, or no geolocation at all: all three end the
+  // same way. Say so kindly, then carry on with the saved address or the
+  // store fallback. Nothing here can block the shopper.
+  function useFallback() {
     status.value = 'denied';
-    if (feedback) feedback.textContent = message + ' Using your saved address or the store fallback.';
+    if (feedback) feedback.textContent = 'Location access was declined. We will use your saved address or the store fallback instead.';
     form.submit();
   }
 
   button.addEventListener('click', function () {
     // Consent boundary: geolocation is never requested on page load.
     if (!navigator.geolocation) {
-      useFallback('This browser does not provide location access.');
+      useFallback();
       return;
     }
     button.disabled = true;
@@ -152,7 +269,7 @@
       if (feedback) feedback.textContent = 'Location found. Checking branch availability...';
       form.submit();
     }, function () {
-      useFallback('Location permission was denied or the location could not be read.');
+      useFallback();
     }, {
       enableHighAccuracy: false,
       timeout: 10000,
@@ -167,4 +284,5 @@
   }
 })();
 </script>
+{% endif %}
 {% endblock %}

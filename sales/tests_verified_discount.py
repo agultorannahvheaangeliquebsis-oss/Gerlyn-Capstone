@@ -88,6 +88,7 @@ class CheckoutIgnoresDiscountClaimTests(DiscountFixtureMixin, TestCase):
             'mode_of_payment': 'Cash on Delivery',
             'fulfillment_type': 'Delivery',
             'delivery_address': '12 Real St, Baliuag',
+            'addr_contact': '0917 123 4567',
             'checkout_token': 'test-checkout-token',
         }
         payload.update(extra)

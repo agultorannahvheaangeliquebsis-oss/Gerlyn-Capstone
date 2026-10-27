@@ -160,6 +160,24 @@ class SalesTransaction(models.Model):
                   "(Physical) sale is handed over at the counter, so it is "
                   "Pickup."
     )
+    # A pin for the rider, kept ONLY when the customer chose to share one for
+    # this delivery (or pinned the saved address they ordered to). Null means
+    # "location not shared": staff then go by delivery_address. Rounded to four
+    # decimal places (about 11 m) on the way in — see orders.delivery. Never
+    # set on a Pickup order, and never copied from a location the customer
+    # shared only to find a branch.
+    delivery_latitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Shared by the customer for this delivery only. Blank when "
+                  "location was not shared; use delivery_address then."
+    )
+    delivery_longitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+    )
+    delivery_contact_number = models.CharField(
+        max_length=20, blank=True,
+        help_text="Who the rider calls. Blank for Pickup and walk-in sales."
+    )
 
     # Line items are immutable once an order exists — there is no view that
     # edits an existing SalesItem, by design. Correcting a mistake means
@@ -382,6 +400,21 @@ class SalesTransaction(models.Model):
         )
 
     @property
+    def has_delivery_pin(self):
+        return self.delivery_latitude is not None and self.delivery_longitude is not None
+
+    @property
+    def delivery_map_url(self):
+        """A plain link to the pin for staff, or '' when no pin was shared."""
+        if not self.has_delivery_pin:
+            return ''
+        return (
+            'https://www.openstreetmap.org/?'
+            f'mlat={self.delivery_latitude}&mlon={self.delivery_longitude}'
+            f'#map=18/{self.delivery_latitude}/{self.delivery_longitude}'
+        )
+
+    @property
     def has_pending_pwd_request(self):
         return self.pwd_request_status == self.PwdRequestStatus.PENDING
 
@@ -437,6 +470,13 @@ class SalesTransaction(models.Model):
             models.UniqueConstraint(
                 fields=['branch', 'pos_invoice_number'],
                 name='sales_unique_branch_pos_invoice',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(delivery_latitude__isnull=True, delivery_longitude__isnull=True)
+                    | models.Q(delivery_latitude__isnull=False, delivery_longitude__isnull=False)
+                ),
+                name='sales_delivery_pin_pair_complete',
             ),
         ]
         indexes = [

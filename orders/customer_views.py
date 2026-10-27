@@ -34,11 +34,17 @@ from sales.pwd_requests import (
     new_request_fields, notify_pwd_request_submitted, request_can_reach_cart,
     validate_pwd_details,
 )
+from .delivery import clean_delivery_form, contact_number_on_file, draft_from_post
 from .services import (
+    branch_options,
+    clear_manual_branch,
     customer_fulfillment_location,
     fulfillable_quantities,
+    is_manual_branch,
     remember_assignment,
-    resolve_nearest_branch,
+    resolve_cart_branch,
+    resolve_manual_branch,
+    set_manual_branch,
 )
 
 # Cap on how many rows the live-search dropdown shows at once.
@@ -66,6 +72,27 @@ NO_SINGLE_BRANCH = (
 CATALOG_PAGE_SIZE = 12
 
 
+def _manual_short_message(resolution):
+    """Why the branch the shopper chose cannot take this cart, and what to do.
+
+    Names the branch and the products. It says outright that the cart was NOT
+    moved, because with the automatic rule a failed add used to mean "we tried
+    another branch", and a shopper who chose one needs to know that did not
+    happen here.
+    """
+    names = list(
+        Product.objects.filter(pk__in=resolution.unavailable_product_ids)
+        .values_list('product_name', flat=True)
+    )
+    branch_name = resolution.chosen_branch.branch_name
+    what = ', '.join(names) if names else 'one of your items'
+    return (
+        f'{branch_name} cannot cover {what} right now. Your cart stays at '
+        f'{branch_name}. Reduce the quantity, choose another branch, or switch '
+        'to automatic branch selection.'
+    )
+
+
 def _no_single_branch_message(resolution):
     """NO_SINGLE_BRANCH, naming the product(s) actually blocking fulfillment.
 
@@ -74,7 +101,12 @@ def _no_single_branch_message(resolution):
     shopper needs to act on — still a better hint than the flat message. Falls
     back to NO_SINGLE_BRANCH when there is nothing to resolve (no active
     branches at all) or the ids no longer name a real product.
+
+    A manual choice that came up short has its own wording: see
+    _manual_short_message.
     """
+    if resolution.strategy == 'manual_short' and resolution.chosen_branch:
+        return _manual_short_message(resolution)
     product_ids = resolution.unavailable_product_ids
     if not product_ids:
         return NO_SINGLE_BRANCH
@@ -217,15 +249,16 @@ def _safe_referer(request):
 def _resolve_cart_branch(request, cart=None, *, notify_change=False):
     cart = request.session.get('cart', {}) if cart is None else cart
     previous_id = request.session.get('branch_id')
-    location = customer_fulfillment_location(request.user, request.session)
-    resolution = resolve_nearest_branch(
-        location['latitude'],
-        location['longitude'],
-        cart,
-        city=location['city'],
-        barangay=location['barangay'],
-        preferred_branch_id=previous_id,
-    )
+    was_manual = is_manual_branch(request.session)
+    resolution = resolve_cart_branch(request.user, request.session, cart)
+    if was_manual and not is_manual_branch(request.session) and notify_change:
+        # resolve_cart_branch dropped the choice because that branch is no
+        # longer active. Say so before the generic "branch changed" notice.
+        messages.warning(
+            request,
+            'The branch you chose is no longer available, so we switched to '
+            'automatic branch selection.',
+        )
     if resolution.branch:
         remember_assignment(request.session, resolution)
         if notify_change and previous_id and previous_id != resolution.branch.pk:
@@ -235,6 +268,31 @@ def _resolve_cart_branch(request, cart=None, *, notify_change=False):
                 'Every cart item was rechecked there.',
             )
     return resolution
+
+
+def _save_typed_address(user, delivery):
+    """Keep an address typed at checkout on the account ("save to my addresses").
+
+    Only the typed address is saved, never the pin: a location shared for one
+    delivery is not consent to store it on the account. Region, province, city
+    and barangay codes are filled in when the words match the bundled PSGC
+    snapshot unambiguously, so the saved row ranks branches the same way one
+    made with the address picker does. The first address becomes the default.
+    """
+    from accounts.geo import match_places
+    from accounts.models import Address
+
+    codes = match_places(delivery.typed_city, delivery.typed_barangay)
+    Address.objects.create(
+        user=user,
+        is_default=not user.addresses.exists(),
+        text=delivery.address,
+        street_detail=delivery.typed_street,
+        region=codes.get('region', ''),
+        province=codes.get('province', ''),
+        city=codes.get('city', ''),
+        barangay=codes.get('barangay', ''),
+    )
 
 
 def _assignment_distance(request, branch):
@@ -813,13 +871,103 @@ def _active_chips(search_query, active_categories, branches, branch_filters):
     return chips
 
 
-def select_branch(request):
-    """Consent screen for location-assisted automatic branch assignment.
+def _branch_page_url(destination, mode='', **extra):
+    """/shop/branch/ with the shopper's way back and, optionally, a tab."""
+    params = QueryDict(mutable=True)
+    if mode:
+        params['mode'] = mode
+    params['next'] = destination
+    for key, value in extra.items():
+        params[key] = value
+    return f'{reverse("orders:select_branch")}?{params.urlencode()}'
 
-    A posted ``branch_id`` is intentionally ignored. The server always
-    resolves one branch for the complete cart.
+
+def _fix_cart_for_branch(request, resolution, fix):
+    """Make the cart fit a chosen branch: trim short lines or drop them.
+
+    ``reduce`` lowers each short line to what the branch has (and drops a line
+    the branch has none of); ``remove`` drops them all. Only lines the branch
+    is actually short on are touched.
+    """
+    cart = request.session.get('cart', {})
+    short_ids = [str(pid) for pid in resolution.unavailable_product_ids]
+    available = fulfillable_quantities(
+        [resolution.chosen_branch.pk], resolution.unavailable_product_ids
+    )
+    for key in short_ids:
+        if key not in cart:
+            continue
+        have = available.get((resolution.chosen_branch.pk, int(key)), 0)
+        if fix == 'reduce' and have > 0:
+            cart[key] = have
+        else:
+            cart.pop(key)
+    request.session['cart'] = cart
+
+
+def _choose_branch(request):
+    """The shopper picked a branch themselves ("I'll choose a branch").
+
+    The branch id is re-validated here — active, and able to cover the whole
+    cart — exactly as automatic assignment validates its own result. Nothing
+    about the cart changes unless the shopper presses one of the two fix
+    buttons, and those are only honoured when the branch really is short.
+    """
+    destination = _safe_next(request) or reverse('orders:cart')
+    raw = request.POST.get('branch_id', '')
+    branch = Branch.objects.filter(pk=raw, is_active=True).first() if raw.isdigit() else None
+    if branch is None:
+        messages.error(request, 'That branch is not available. Choose one from the list.')
+        return redirect(_branch_page_url(destination, 'manual'))
+
+    location = customer_fulfillment_location(request.user, request.session)
+    cart = request.session.get('cart', {})
+    resolution = resolve_manual_branch(
+        branch.pk, cart, latitude=location['latitude'], longitude=location['longitude']
+    )
+    if resolution.strategy == 'manual_short':
+        fix = request.POST.get('fix', '')
+        if fix not in ('reduce', 'remove'):
+            return redirect(_branch_page_url(destination, 'manual', conflict=branch.pk))
+        _fix_cart_for_branch(request, resolution, fix)
+        resolution = resolve_manual_branch(
+            branch.pk, request.session.get('cart', {}),
+            latitude=location['latitude'], longitude=location['longitude'],
+        )
+    if not resolution.branch:
+        messages.error(request, _no_single_branch_message(resolution))
+        return redirect(_branch_page_url(destination, 'manual'))
+
+    set_manual_branch(request.session, resolution)
+    messages.success(
+        request,
+        f'You are now shopping at {branch.branch_name}. Every item in your '
+        'cart was rechecked there.',
+    )
+    return redirect(_branch_page_url(destination, 'manual'))
+
+
+def select_branch(request):
+    """Where the shopper decides which branch their order comes from.
+
+    Two ways, shown as two tabs. "Nearest to me" is the original rule: the
+    server resolves the nearest active branch that can fulfill the whole cart,
+    using a shared location, the saved address, or the store fallback. "I'll
+    choose a branch" lets the shopper name one (``action=choose``), and the
+    server keeps it for the session instead of re-resolving.
+
+    A posted ``branch_id`` is only honoured with ``action=choose``, and is
+    re-validated there. Checkout and the sales API never read one.
     """
     if request.method == 'POST':
+        action = request.POST.get('action', '')
+        if action == 'choose':
+            return _choose_branch(request)
+
+        # Everything below is the automatic rule, so it ends any manual choice.
+        # "Don't share my location" (location_status=fallback) never touches
+        # the browser, and neither does action=automatic.
+        clear_manual_branch(request.session)
         status = request.POST.get('location_status', '')
         if status == 'granted':
             from accounts.geocoding import GeocodingError, parse_coordinates, reverse_geocode
@@ -851,7 +999,10 @@ def select_branch(request):
             if label:
                 location_payload['label'] = label
             request.session['fulfillment_location'] = location_payload
-        else:
+        elif action != 'automatic':
+            # Not sharing is a decision about the location. Going back to
+            # automatic selection is not, so a location the shopper already
+            # shared earlier is kept and used.
             request.session.pop('fulfillment_location', None)
 
         resolution = _resolve_cart_branch(request, notify_change=True)
@@ -863,6 +1014,12 @@ def select_branch(request):
                 request,
                 f'Location detected. {resolution.branch.branch_name} can fulfill '
                 'your whole cart.',
+            )
+        elif action == 'automatic':
+            messages.info(
+                request,
+                f'Automatic branch selection is on. {resolution.branch.branch_name} '
+                'is the nearest branch that can fulfill your whole cart.',
             )
         else:
             fallback_description = (
@@ -885,8 +1042,37 @@ def select_branch(request):
     ).first()
     location = customer_fulfillment_location(request.user, request.session)
     continue_url = _safe_get_next(request) or reverse('orders:cart')
+    manual = is_manual_branch(request.session) and current_branch is not None
+
+    # Which tab. A shopper already on a chosen branch lands on the list; the
+    # entry links that literally say "Choose a branch" pass ?mode=manual.
+    mode = request.GET.get('mode')
+    if mode not in ('auto', 'manual'):
+        mode = 'manual' if manual else 'auto'
+
+    options = []
+    conflict = None
+    if mode == 'manual':
+        options = branch_options(
+            request.session.get('cart', {}), location['latitude'], location['longitude']
+        )
+        if request.GET.get('conflict', '').isdigit():
+            wanted = int(request.GET['conflict'])
+            conflict = next(
+                (o for o in options if o['branch'].pk == wanted and o['short']), None
+            )
+
     return render(request, 'orders/select_branch.html', {
         'current_branch': current_branch,
+        'is_manual': manual,
+        'mode': mode,
+        'branch_options': options,
+        'conflict': conflict,
+        'distance_origin': (
+            'your current location' if location['source'] == 'browser'
+            else 'your saved address' if location['source'] == 'address' else ''
+        ),
+        'cart_line_count': len(request.session.get('cart', {})),
         'assignment_distance': _assignment_distance(request, current_branch),
         'assignment_strategy': (
             (request.session.get('fulfillment_assignment') or {}).get('strategy', '')
@@ -895,7 +1081,7 @@ def select_branch(request):
         'continue_url': continue_url,
         'next': continue_url,
         # Lets the template offer "Use my saved address" instead of the
-        # generic "Continue without sharing location" — same POST
+        # generic "Don't share my location" — same POST
         # (customer_fulfillment_location already falls back to this address
         # when no browser location is shared), just named so a shopper with
         # one on file can pick it without a geolocation prompt first.
@@ -1064,7 +1250,10 @@ def update_cart(request, product_id):
         resolution = _resolve_cart_branch(request, proposed_cart, notify_change=True)
         if not resolution.branch:
             current_branch_id = request.session.get('branch_id')
-            if current_branch_id:
+            # A manual choice already says which branch is short and that the
+            # cart stayed put, so the "left at this branch" line would only
+            # repeat it.
+            if current_branch_id and resolution.strategy != 'manual_short':
                 available = fulfillable_quantities(
                     [current_branch_id], [product_id]
                 ).get((current_branch_id, product_id), 0)
@@ -1159,12 +1348,15 @@ def view_cart(request):
         'qualifies': total >= FREE_DELIVERY_OVER,
         'progress_pct': min(int((total / FREE_DELIVERY_OVER) * 100), 100) if total else 0,
         'branch': branch,
+        'is_manual_branch': is_manual_branch(request.session) and branch is not None,
         'assignment_distance': _assignment_distance(request, branch),
         'location_used': location_used,
-        # The one saved address a Delivery order ships to. Shown read-only in
-        # the checkout form; the shopper changes it in Settings -> Addresses,
-        # never here. checkout() re-reads the same row.
+        # The saved address a Delivery order ships to by default. The shopper
+        # can instead type one for this order (see orders.delivery), and
+        # checkout() re-reads the saved row rather than trusting the form.
         'default_address': request.user.addresses.filter(is_default=True).first(),
+        'contact_number_on_file': contact_number_on_file(request.user),
+        'draft': request.session.pop('checkout_draft', None) or {},
         'payment_choices': [
             ('Cash on Delivery', 'Cash on Delivery'),
             ('Pay at Store', 'Pay at Store'),
@@ -1381,30 +1573,29 @@ def checkout(request):
         )
         return redirect('orders:cart')
 
-    # The address is NOT read from this form — there is no address input on it
-    # any more. A Delivery order ships to the address saved on the account
-    # (the default Address row), captured at registration or in
-    # Settings -> Addresses and edited only there. One authoritative,
-    # structured, map-pinned record beats a free-text box retyped — and
-    # mistyped — on every order.
+    # --- where a delivery goes ---------------------------------------------
+    # Decided by orders.delivery, the same rules the customer sales API uses:
+    # a Delivery order needs a pinned location OR a complete address, and a
+    # Pickup order carries neither. The address is the account's saved default
+    # unless the shopper chose to type one for this order. A pin is optional
+    # and is never required: declining to share a location, a denied browser
+    # prompt and a malformed pin are all simply "no pin", and only the address
+    # rules can refuse the order.
     #
-    # No saved address while Delivery is chosen: refused, not defaulted, for
-    # the same reason an unrecognised fulfillment_type is refused above —
-    # there is nothing safe to invent. Pickup never carries an address, so a
-    # missing one there is no problem.
+    # Nothing location-related is read from the POST for a Pickup order, and
+    # coordinates are only read when the form says the shopper shared them.
+    delivery = None
     if fulfillment_type == SalesTransaction.FulfillmentType.DELIVERY:
-        saved = request.user.addresses.filter(is_default=True).first()
-        delivery_address = saved.text.strip() if saved else ''
-        if not delivery_address:
-            messages.error(
-                request,
-                'Add a delivery address to your account before placing a '
-                'delivery order — open Settings then Addresses. Or choose '
-                'Pickup to collect this order at the branch.'
-            )
+        delivery, delivery_errors = clean_delivery_form(
+            request.POST, request.user,
+            request.user.addresses.filter(is_default=True).first(),
+        )
+        if delivery_errors:
+            for error in delivery_errors:
+                messages.error(request, error)
+            # Keep what they typed (never a coordinate) for the redisplayed form.
+            request.session['checkout_draft'] = draft_from_post(request.POST)
             return redirect('orders:cart')
-    else:  # Pickup — never carries an address, whatever is on the account.
-        delivery_address = ''
 
     # --- PWD / Senior Citizen discount --------------------------------------
     # Deliberately NOT read from this form, and there is no UI offering it.
@@ -1574,7 +1765,10 @@ def checkout(request):
             order_status=SalesTransaction.OrderStatus.PENDING,
             mode_of_payment=mode_of_payment,
             fulfillment_type=fulfillment_type,
-            delivery_address=delivery_address,
+            delivery_address=delivery.address if delivery else '',
+            delivery_latitude=delivery.latitude if delivery else None,
+            delivery_longitude=delivery.longitude if delivery else None,
+            delivery_contact_number=delivery.contact_number if delivery else '',
             # Priced up front and written on the INSERT itself — the same
             # order sales.views.transaction_add and the DRF write serializer
             # already use. This used to create at the model's total_amount=0
@@ -1620,6 +1814,9 @@ def checkout(request):
     request.session['cart'] = {}
     request.session.pop('fulfillment_location', None)
     request.session.pop('fulfillment_assignment', None)
+    request.session.pop('checkout_draft', None)
+    if delivery and delivery.save_typed_address:
+        _save_typed_address(request.user, delivery)
     messages.success(request, f'Order {sale.order_number} placed!')
     if pwd_request:
         messages.info(

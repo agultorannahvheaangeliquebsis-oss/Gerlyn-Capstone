@@ -17,7 +17,7 @@ from django.conf import settings
 from django.db.models import Sum
 
 from branches.models import Branch
-from inventory.models import Inventory
+from inventory.models import Inventory, Product
 from sales.models import SalesItem, SalesTransaction
 
 
@@ -30,12 +30,24 @@ OPEN_ORDER_STATUSES = (
 )
 
 
+# Session key for how the shopping branch was decided. Absent (or anything but
+# MANUAL) means automatic. The branch itself stays in session['branch_id'],
+# which is what every other page reads; this only says whether the server may
+# move it.
+BRANCH_MODE_KEY = 'branch_mode'
+BRANCH_MODE_MANUAL = 'manual'
+
+
 @dataclass(frozen=True)
 class FulfillmentResolution:
     branch: Branch | None
     distance_km: float | None
     strategy: str
     unavailable_product_ids: tuple[int, ...] = ()
+    # Only set for a manual choice that could not cover the cart: the branch
+    # the shopper picked, so the message can name it. `branch` stays None in
+    # that case because the cart is NOT being assigned there.
+    chosen_branch: Branch | None = None
 
     @property
     def can_fulfill(self):
@@ -113,6 +125,25 @@ def remember_assignment(session, resolution):
         ),
         'strategy': resolution.strategy,
     }
+    # An automatic result is only ever produced while the mode is automatic,
+    # so this is belt-and-braces: a stale manual flag must never outlive the
+    # assignment it described.
+    if resolution.strategy != 'manual':
+        session.pop(BRANCH_MODE_KEY, None)
+
+
+def is_manual_branch(session):
+    return session.get(BRANCH_MODE_KEY) == BRANCH_MODE_MANUAL
+
+
+def set_manual_branch(session, resolution):
+    """Record a shopper-chosen branch. `resolution` is from resolve_manual_branch."""
+    remember_assignment(session, resolution)
+    session[BRANCH_MODE_KEY] = BRANCH_MODE_MANUAL
+
+
+def clear_manual_branch(session):
+    session.pop(BRANCH_MODE_KEY, None)
 
 
 def haversine_distance_km(latitude, longitude, branch_latitude, branch_longitude):
@@ -273,3 +304,106 @@ def resolve_nearest_branch(
         'unavailable',
         tuple(sorted(unavailable or requirements)),
     )
+
+
+def distance_to_branch(latitude, longitude, branch):
+    """Straight-line km from a customer point to `branch`, or None if either is unknown."""
+    origin = valid_coordinate_pair(latitude, longitude)
+    target = valid_coordinate_pair(branch.latitude, branch.longitude)
+    if origin is None or target is None:
+        return None
+    return haversine_distance_km(*origin, *target)
+
+
+def resolve_manual_branch(branch_id, cart_lines, *, latitude=None, longitude=None):
+    """Check ONE shopper-chosen branch against the whole cart.
+
+    Never falls back to another branch: that is the entire point of choosing
+    one. The strategies it can return:
+
+    * ``manual``             the branch is active and covers every line.
+    * ``manual_short``       it is active but short on at least one line;
+                             ``unavailable_product_ids`` names them and
+                             ``chosen_branch`` carries the branch.
+    * ``manual_unavailable`` the id names no active branch (closed, deleted,
+                             or tampered with). The caller decides what then.
+    """
+    branch = Branch.objects.filter(pk=branch_id, is_active=True).first() if branch_id else None
+    if branch is None:
+        return FulfillmentResolution(None, None, 'manual_unavailable')
+    requirements = normalize_cart_lines(cart_lines)
+    quantities = fulfillable_quantities([branch.pk], requirements.keys())
+    missing = tuple(sorted(
+        product_id for product_id, needed in requirements.items()
+        if quantities.get((branch.pk, product_id), 0) < needed
+    ))
+    if missing:
+        return FulfillmentResolution(
+            None, None, 'manual_short', missing, chosen_branch=branch
+        )
+    return FulfillmentResolution(
+        branch, distance_to_branch(latitude, longitude, branch), 'manual'
+    )
+
+
+def resolve_cart_branch(user, session, cart_lines):
+    """The one rule for which branch a customer's cart belongs to.
+
+    The storefront views and the customer sales API both call this so they
+    cannot disagree. A manual choice is honoured exactly; if the chosen branch
+    has since closed, the choice is dropped and the automatic rule runs instead
+    (the caller can tell: ``is_manual_branch(session)`` flips to False).
+    """
+    location = customer_fulfillment_location(user, session)
+    if is_manual_branch(session):
+        resolution = resolve_manual_branch(
+            session.get('branch_id'), cart_lines,
+            latitude=location['latitude'], longitude=location['longitude'],
+        )
+        if resolution.strategy != 'manual_unavailable':
+            return resolution
+        clear_manual_branch(session)
+    return resolve_nearest_branch(
+        location['latitude'], location['longitude'], cart_lines,
+        city=location['city'], barangay=location['barangay'],
+        preferred_branch_id=session.get('branch_id'),
+    )
+
+
+def branch_options(cart_lines, latitude=None, longitude=None):
+    """Every active branch with what it can and cannot cover of this cart.
+
+    Feeds the "I'll choose a branch" list. Nearest first when distances are
+    known; branches without a usable distance follow, by name. Each entry:
+    ``branch``, ``distance_km`` (or None), ``short`` (a list of dicts with
+    ``product_id``, ``name``, ``needed``, ``available``) and ``can_fulfill``.
+    """
+    requirements = normalize_cart_lines(cart_lines)
+    branches = list(Branch.objects.filter(is_active=True).order_by('branch_name', 'pk'))
+    quantities = fulfillable_quantities([b.pk for b in branches], requirements.keys())
+    names = dict(
+        Product.objects.filter(pk__in=requirements.keys())
+        .values_list('pk', 'product_name')
+    )
+    options = []
+    for branch in branches:
+        short = [
+            {
+                'product_id': product_id,
+                'name': names.get(product_id, 'An item'),
+                'needed': needed,
+                'available': quantities.get((branch.pk, product_id), 0),
+            }
+            for product_id, needed in requirements.items()
+            if quantities.get((branch.pk, product_id), 0) < needed
+        ]
+        options.append({
+            'branch': branch,
+            'distance_km': distance_to_branch(latitude, longitude, branch),
+            'short': short,
+            'can_fulfill': not short,
+        })
+    options.sort(key=lambda o: (
+        o['distance_km'] is None, o['distance_km'] or 0, o['branch'].branch_name.lower(), o['branch'].pk,
+    ))
+    return options

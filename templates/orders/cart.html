@@ -17,6 +17,14 @@ every panel in the app to fix one column.
 {% endcomment %}
 {% block body_class %}shop shop-cart{% if items %} has-sticky{% endif %}{% endblock %}
 
+{% block extra_css %}
+{% comment %}
+account.css carries the shared address picker's modal and map styles, which the
+checkout's "Pin on map" step reuses.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/account.css' %}?v={{ APP_VERSION }}">
+{% endblock %}
+
 {% block content %}
 <div class="shop-wrap section">
   {% comment %}
@@ -30,9 +38,29 @@ every panel in the app to fix one column.
   <div class="section-head">
     <div>
       <h2>Your Cart</h2>
-      {% if branch %}<p class="gv-meta mb-0" id="cart-fulfillment-note">
+      {% if branch and is_manual_branch %}
+      {% comment %}
+      A branch the shopper chose themselves: no location is involved, so the
+      "Location used" line is left out. "Use automatic branch instead" is a
+      POST (it changes session state), styled as a link.
+      {% endcomment %}
+      <p class="gv-meta mb-0" id="cart-fulfillment-note">
+        Shopping at <strong>{{ branch.branch_name }}</strong>
+        <span class="branch-tag">You chose this</span>{% if assignment_distance != None %} · approximately {{ assignment_distance|floatformat:1 }} km straight-line distance{% endif %}
+        · <a href="{% url 'orders:select_branch' %}?mode=manual&amp;next={% url 'orders:cart' %}">change branch</a>
+        {# One unbreakable unit, so the separator never dangles at the end of a line. #}
+        <span class="nowrap">·
+        <form method="POST" action="{% url 'orders:select_branch' %}" class="inline-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="automatic">
+          <input type="hidden" name="next" value="{% url 'orders:cart' %}">
+          <button type="submit" class="link-button">use automatic branch instead</button>
+        </form></span>
+      </p>
+      {% elif branch %}<p class="gv-meta mb-0" id="cart-fulfillment-note">
         Fulfilled by <strong>{{ branch.branch_name }}</strong>{% if assignment_distance != None %} · approximately {{ assignment_distance|floatformat:1 }} km straight-line distance{% endif %}
         · <a href="{% url 'orders:select_branch' %}?next={% url 'orders:cart' %}">update location</a>
+        · <a href="{% url 'orders:select_branch' %}?mode=manual&amp;next={% url 'orders:cart' %}">choose a branch</a>
       </p>
       <p class="gv-meta mb-0">
         Location used:
@@ -184,32 +212,94 @@ every panel in the app to fix one column.
           on Delivery or GCash, or choose pickup at the branch instead.
         </div>
         {% comment %}
-        Read-only on purpose. A Delivery order ships to the address saved on
-        the account — there is no field to type one in here. It is set in
-        Settings → Addresses and nowhere else, so the one structured,
-        map-pinned record is what the order, the receipt and the Order
-        Console all see. checkout() reads that same saved address; this block
-        only shows the shopper where it will go before they commit.
+        Where a Delivery order goes. The saved default address is used unless
+        the shopper types one for this order. Location is optional throughout:
+        "Use my current location" and "Don't share my location" only decide
+        whether a pin travels with the order, and nothing here can block the
+        submit. checkout() re-validates everything through orders.delivery and
+        never trusts what this block displays; coordinates are only read when
+        location_status says the shopper shared a pin, and are rounded to four
+        decimal places before they are stored.
         {% endcomment %}
-        <div class="field" id="delivery_address_field">
+        <div class="field delivery-block" id="delivery_address_field"
+             data-has-saved="{% if default_address.text %}1{% else %}0{% endif %}"
+             data-saved-pin="{% if default_address.latitude is not None and default_address.longitude is not None %}1{% else %}0{% endif %}">
           <span class="gv-label">Delivery address</span>
+
           {% if default_address.text %}
+            <label class="delivery-source">
+              <input type="radio" name="address_source" value="saved" {% if draft.address_source != 'typed' %}checked{% endif %}>
+              Use my saved address
+            </label>
             <p class="checkout-saved-address">{{ default_address.text }}</p>
             <p class="gv-meta mb-0">Saved to your account —
               <a href="{% url 'accounts:profile' %}#addresses">change it in Settings</a>.</p>
+            <label class="delivery-source">
+              <input type="radio" name="address_source" value="typed" {% if draft.address_source == 'typed' %}checked{% endif %}>
+              Use a different address for this order
+            </label>
           {% else %}
-            {% comment %}
-            One child, not three: .banner is display:flex, so bare text nodes
-            either side of the <a> become their own flex items and each gets
-            squeezed into its own narrow column. Wrapping the whole message in
-            a <span> gives the flex row a single item that wraps as prose.
-            {% endcomment %}
-            <div class="banner banner-warning">
-              <span>You have no saved delivery address.
-                <a href="{% url 'accounts:profile' %}#addresses">Add one in Settings</a>
-                to have this order delivered, or choose “I'll pick it up at the branch” above.</span>
-            </div>
+            <input type="hidden" name="address_source" value="typed">
+            <p class="gv-meta mb-0">You have no saved address. Type one below, and tick the box to keep it on your account.</p>
           {% endif %}
+
+          <div class="delivery-typed" id="delivery_typed_fields">
+            <div class="field">
+              <label for="addr_street">Street, building, house no.</label>
+              <input id="addr_street" type="text" name="addr_street" maxlength="255" autocomplete="street-address" value="{{ draft.addr_street }}">
+            </div>
+            <div class="delivery-typed-pair">
+              <div class="field">
+                <label for="addr_barangay">Barangay</label>
+                <input id="addr_barangay" type="text" name="addr_barangay" maxlength="100" value="{{ draft.addr_barangay }}">
+              </div>
+              <div class="field">
+                <label for="addr_city">Municipality</label>
+                <input id="addr_city" type="text" name="addr_city" maxlength="100" value="{{ draft.addr_city }}">
+              </div>
+            </div>
+            <div class="field">
+              <label for="addr_landmark">Landmark <span class="gv-meta">— optional</span></label>
+              <input id="addr_landmark" type="text" name="addr_landmark" maxlength="150" value="{{ draft.addr_landmark }}">
+            </div>
+            <label class="delivery-source delivery-save">
+              <input type="checkbox" name="addr_save" value="1" {% if draft.addr_save or not default_address.text %}checked{% endif %}>
+              Also save this to my addresses (the pin is never saved to your account)
+            </label>
+          </div>
+
+          <div class="field">
+            <label for="addr_contact">Contact number <span class="gv-meta">— so the rider can reach you</span></label>
+            <input id="addr_contact" type="tel" name="addr_contact" maxlength="20" inputmode="tel" autocomplete="tel"
+                   value="{% if draft.addr_contact %}{{ draft.addr_contact }}{% else %}{{ contact_number_on_file }}{% endif %}">
+          </div>
+
+          <div class="delivery-pin" id="delivery_pin_block">
+            <span class="gv-label">Pin your location <span class="gv-meta">— optional</span></span>
+            <p class="gv-meta mb-0">Share it so the rider finds you faster. You can skip this and be reached at your address.</p>
+            <div class="delivery-pin-actions">
+              <button type="button" class="btn btn-sm" id="delivery-use-location">Use my current location</button>
+              <button type="button" class="btn btn-sm" id="delivery-decline-location">Don't share my location</button>
+              <button type="button" class="btn btn-sm" id="delivery-pin-on-map">Pin on map</button>
+            </div>
+            {% comment %}
+            location_status: '' (never touched), granted (the shopper shared a
+            pin, by GPS or on the map), declined (they pressed Don't share) or
+            denied (the browser refused, timed out, or has no geolocation).
+            Only granted carries coordinates, and "declined" also leaves out
+            the pin saved on the account address.
+            {% endcomment %}
+            <input type="hidden" name="location_status" id="delivery_location_status" value="">
+            <input type="hidden" name="delivery_latitude" id="delivery_latitude" value="">
+            <input type="hidden" name="delivery_longitude" id="delivery_longitude" value="">
+            <p class="gv-meta mb-0" id="delivery-location-feedback" role="status" aria-live="polite"></p>
+            <p class="gv-meta mb-0">Coordinates for this order: <strong id="delivery-coords">none</strong></p>
+            <p class="gv-meta mb-0 privacy-note" id="delivery-privacy-note">
+              Your location is used only for delivery. Sharing it is optional
+              and you can remove it at any time, in line with the Data Privacy
+              Act of 2012 (RA 10173).
+            </p>
+          </div>
         </div>
         {% comment %}
         "if paying by GCash" undersold this: checkout now refuses a GCash
@@ -305,6 +395,11 @@ GCash order with a blank reference, and refuses Pay at Store paired with
 Delivery, independent of anything this script does.
 {% endcomment %}
 <script src="{% static 'js/gcash-reference.js' %}?v={{ APP_VERSION }}"></script>
+{% if items %}
+{% include "accounts/_address_picker_modal.html" %}
+<script src="{% static 'js/address-picker.js' %}?v={{ APP_VERSION }}"></script>
+<script src="{% static 'js/checkout-location.js' %}?v={{ APP_VERSION }}"></script>
+{% endif %}
 <script>
   (function () {
     var paymentSelect = document.getElementById('mode_of_payment');

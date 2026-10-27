@@ -11,6 +11,7 @@ from .pricing import price_cart
 from .pwd_requests import new_request_fields, request_can_reach_cart, validate_pwd_details
 from core.limits import MAX_QUANTITY
 from core.scoping import user_can_access_branch
+from orders.delivery import clean_pin
 from inventory.costing import CostResolver, stamp_sale_item_cost
 from inventory.models import Product, Inventory, Batch, StockMovement
 from branches.models import Branch
@@ -255,6 +256,17 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
     transactionType = serializers.ChoiceField(choices=SalesTransaction.TransactionType.choices)
     modeOfPayment = serializers.ChoiceField(choices=SalesTransaction.ModeOfPayment.choices)
     deliveryAddress = serializers.CharField(required=False, allow_blank=True)
+    # A pin the customer chose to share for this delivery. Optional: a
+    # delivery needs this OR a typed deliveryAddress (see orders.delivery).
+    deliveryLatitude = serializers.DecimalField(
+        max_digits=10, decimal_places=6, required=False, allow_null=True
+    )
+    deliveryLongitude = serializers.DecimalField(
+        max_digits=10, decimal_places=6, required=False, allow_null=True
+    )
+    deliveryContactNumber = serializers.CharField(
+        required=False, allow_blank=True, max_length=20
+    )
     # Optional, and an Online order without it is still a Delivery — the only
     # thing this endpoint could create before. 'Pickup' is what makes an
     # Online order eligible for a PWD request, mirroring the storefront's
@@ -300,14 +312,24 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 )
             fulfillment = Fulfillment.PICKUP
 
-        if is_online and fulfillment == Fulfillment.DELIVERY \
-                and not data.get('deliveryAddress', '').strip():
-            raise serializers.ValidationError(
-                {'deliveryAddress': 'Delivery address is required for online orders.'}
-            )
-        # Pickup never carries an address, whatever the payload says (F-11).
-        if fulfillment == Fulfillment.PICKUP:
+        # A pin is optional and never required. A delivery needs the pin OR a
+        # typed address; a malformed pin is reported, not silently trusted.
+        pin = (None, None)
+        if is_online and fulfillment == Fulfillment.DELIVERY:
+            try:
+                pin = clean_pin(data.get('deliveryLatitude'), data.get('deliveryLongitude'))
+            except ValueError as exc:
+                raise serializers.ValidationError({'deliveryLatitude': str(exc)})
+            if not data.get('deliveryAddress', '').strip() and pin[0] is None:
+                raise serializers.ValidationError({
+                    'deliveryAddress': 'Delivery orders need a delivery address or a pinned location.'
+                })
+        # Pickup never carries an address, a pin or a contact, whatever the
+        # payload says (F-11).
+        if fulfillment == Fulfillment.PICKUP or not is_online:
             data['deliveryAddress'] = ''
+            data['deliveryContactNumber'] = ''
+        data['deliveryLatitude'], data['deliveryLongitude'] = pin
         data['fulfillmentType'] = fulfillment
 
         pwd = data.pop('pwdDiscountRequest', None)
@@ -367,15 +389,13 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
 
         with transaction.atomic():
             if user.role == user.Role.CUSTOMER:
-                # Customer API writes follow the same automatic whole-cart
-                # assignment as the server-rendered checkout. Lock all
-                # candidate rows first so another checkout cannot promise the
-                # same units while this one is resolving.
-                from orders.services import (
-                    customer_fulfillment_location,
-                    remember_assignment,
-                    resolve_nearest_branch,
-                )
+                # Customer API writes follow the same whole-cart branch rule
+                # as the server-rendered checkout: automatic, or the branch
+                # the customer chose in the storefront. Lock all candidate
+                # rows first so another checkout cannot promise the same
+                # units while this one is resolving. The request body's
+                # branchId is never read for a customer.
+                from orders.services import remember_assignment, resolve_cart_branch
 
                 list(
                     Inventory.objects.select_for_update()
@@ -385,15 +405,15 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                     )
                     .order_by('branch_id', 'product_id')
                 )
-                location = customer_fulfillment_location(user, request.session)
-                resolution = resolve_nearest_branch(
-                    location['latitude'], location['longitude'], qty_by_product,
-                    city=location['city'], barangay=location['barangay'],
-                    preferred_branch_id=request.session.get('branch_id'),
-                )
+                resolution = resolve_cart_branch(user, request.session, qty_by_product)
                 if not resolution.branch:
                     raise serializers.ValidationError({
-                        'items': 'No single branch can fulfill every item in this order.'
+                        'items': (
+                            f'{resolution.chosen_branch.branch_name} cannot fulfill '
+                            'every item in this order.'
+                            if resolution.chosen_branch else
+                            'No single branch can fulfill every item in this order.'
+                        )
                     })
                 branch_id = resolution.branch.pk
                 remember_assignment(request.session, resolution)
@@ -514,6 +534,9 @@ class SalesTransactionWriteSerializer(serializers.Serializer):
                 # gate exists to close.
                 fulfillment_type=validated_data['fulfillmentType'],
                 delivery_address=validated_data.get('deliveryAddress', ''),
+                delivery_latitude=validated_data.get('deliveryLatitude'),
+                delivery_longitude=validated_data.get('deliveryLongitude'),
+                delivery_contact_number=validated_data.get('deliveryContactNumber', ''),
                 total_amount=total,
                 total_vat_amount=priced['total_vat_amount'],
                 **(new_request_fields(*pwd_request) if pwd_request else {}),

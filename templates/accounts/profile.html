@@ -281,6 +281,19 @@
                     </div>
                     <div class="address-card-text">{{ address.text }}</div>
 
+                    {% comment %}
+                    The pin is optional and removable. Removing it clears only
+                    the coordinates (accounts.views.address_remove_location);
+                    the typed address stays and is what delivery then uses.
+                    {% endcomment %}
+                    <p class="gv-meta" style="margin-top:6px; font-size:12.5px;" data-address-pin-state>
+                      {% if address.latitude is not None and address.longitude is not None %}
+                        {% t "Pinned location saved." %}
+                      {% else %}
+                        {% t "No pinned location saved. Only the typed address is used." %}
+                      {% endif %}
+                    </p>
+
                     {% if address.is_default %}
                       <p class="gv-meta" style="margin-top:6px; font-size:12.5px;">
                         {% t "This is your default delivery address." %}
@@ -306,6 +319,16 @@
                           data-longitude="{{ address.longitude|default_if_none:'' }}">
                           {% t "Edit" %}
                       </button>
+                      {% if address.latitude is not None and address.longitude is not None %}
+                        <form method="post" action="{% url 'accounts:address_remove_location' address.pk %}" style="margin:0;"
+                              data-confirm="{% t "We will delete the pin from your account. Your typed address stays, and only that address will be used for delivery." %}"
+                              data-confirm-title="{% t "Remove saved location?" %}"
+                              data-confirm-variant="danger"
+                              data-confirm-ok="{% t "Remove saved location" %}">
+                          {% csrf_token %}
+                          <button type="submit" class="address-set-default-link">{% t "Remove saved location" %}</button>
+                        </form>
+                      {% endif %}
                     </div>
                   </div>
 
@@ -324,6 +347,9 @@
                 </div>
               {% endfor %}
             </div>
+            <p class="gv-meta" id="address-privacy-note" style="margin-top:12px; font-size:12.5px;">
+              {% t "Your location is used only for delivery. It is optional, and you can remove it at any time, in line with the Data Privacy Act of 2012 (RA 10173)." %}
+            </p>
           {% else %}
             <p class="account-empty">{% t "No address saved — add one so your orders can be delivered." %}</p>
           {% endif %}

@@ -2024,6 +2024,34 @@ def address_edit(request, pk):
 
 @login_required(login_url='accounts:login')
 @require_POST
+def address_remove_location(request, pk):
+    """Forget the pin on a saved address; the typed address stays.
+
+    Coordinates are optional and the customer can take them back at any time
+    (Data Privacy Act of 2012). Only latitude and longitude are cleared, so the
+    address text and its Region/Province/City/Barangay fields keep working:
+    delivery then goes by the typed address, and the branch picker ranks by
+    barangay and city instead of distance. Also drops any location this browser
+    session was holding for the branch finder.
+    """
+    address = get_object_or_404(Address, pk=pk, user=request.user)
+    had_pin = address.latitude is not None or address.longitude is not None
+    address.latitude = None
+    address.longitude = None
+    address.save(update_fields=['latitude', 'longitude'])
+    _address_changed(request)
+    if had_pin:
+        messages.success(
+            request,
+            'Saved location removed. Only your typed address will be used for delivery.',
+        )
+    else:
+        messages.info(request, 'That address had no saved location. Only the typed address is used.')
+    return redirect(_addresses_anchor())
+
+
+@login_required(login_url='accounts:login')
+@require_POST
 def address_delete(request, pk):
     address = get_object_or_404(Address, pk=pk, user=request.user)
     if address.is_default:

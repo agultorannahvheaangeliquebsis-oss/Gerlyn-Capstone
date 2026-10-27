@@ -622,7 +622,7 @@ page already open behind this overlay — Order Details is unaffected by that.
         <div><dt>Fulfillment</dt><dd><span class="tag">{{ transaction.get_fulfillment_type_display }}</span></dd></div>
         {% endif %}
         {% if transaction.delivery_address %}
-        <div class="wide"><dt>Deliver to</dt><dd>{{ transaction.delivery_address }}</dd></div>
+        <div class="wide"><dt>Deliver to</dt><dd>{{ transaction.delivery_address }}{% include "partials/_delivery_location.html" with txn=transaction %}</dd></div>
         {% endif %}
         {% comment %}
         The statutory-discount record. Shown only when a claim was made — the

@@ -724,3 +724,77 @@ See [`10-notifications-and-customer-dashboard.md`](10-notifications-and-customer
 Home, Shop, About Us, categories, My Orders, the status filters, Notifications,
 My Profile, Sessions, Privacy & Data, Language, Help Center, About, Logout,
 Set location, and Start shopping.
+
+---
+
+## Addendum (2026-10-27): choosing a branch yourself, and optional delivery location
+
+This file describes the defense build. Three things changed afterwards; where
+this addendum and the text above disagree, this addendum is current.
+
+### 1. A shopper can choose their branch ("I'll choose a branch")
+
+Automatic assignment above is still the default. `/shop/branch/` now has two
+tabs, **Nearest to me** (the flow described above) and **I'll choose a branch**
+(`?mode=manual`).
+
+| | Automatic (default) | Chosen by the shopper |
+|---|---|---|
+| Decided by | `resolve_nearest_branch` | The shopper, re-validated by `resolve_manual_branch` |
+| Session | `branch_id`, `fulfillment_assignment` | same, plus `session['branch_mode'] = 'manual'` |
+| Cart change that the branch cannot cover | Cart moves to the next branch | **Refused**; the cart stays and the message names the branch |
+| Closed branch | next branch | choice dropped, falls back to automatic, with a message |
+
+- One function, `orders.services.resolve_cart_branch(user, session, cart)`,
+  decides for both the storefront views and the customer sales API.
+- A posted `branch_id` is read **only** with `action=choose` on
+  `select_branch`, and is re-checked there (active branch, whole cart covered).
+  Checkout and the sales API still never read one.
+- Choosing a branch that is short on a line shows a conflict panel (reduce /
+  remove / stay). Nothing in the cart changes until the shopper presses one.
+- "Don't share my location", "Use my current location" and
+  `action=automatic` all end a manual choice.
+- Lifetime is the session only, the same as the cart.
+
+### 2. Delivery location is optional and can be declined
+
+The checkout's delivery block (cart page) has **Use my current location**,
+**Don't share my location** and **Pin on map**. All rules live in
+`orders.delivery.clean_delivery_form`, shared with the customer sales API:
+
+- Delivery needs a pinned location **or** a complete typed address (street,
+  barangay, municipality; landmark optional). Pickup needs neither and carries
+  nothing location-related.
+- A contact number is required for delivery (typed, else the one on the
+  account).
+- `location_status` is `granted` (shared a pin), `declined` (pressed Don't
+  share) or `denied` (browser refused, timed out, or no geolocation).
+  Coordinates are read **only** for `granted`; a malformed pin is dropped, never
+  an error. `declined` also leaves out the pin saved on the account address.
+- Location can never be the reason an order is refused.
+- The address is the saved default unless the shopper types one for this order;
+  ticking "save to my addresses" saves the typed address (with PSGC codes when
+  the words match unambiguously) and **never the pin**.
+
+### 3. What an order now stores
+
+`SalesTransaction` gained three nullable/blank columns (migration
+`sales/0024_delivery_location_pin`): `delivery_latitude`, `delivery_longitude`
+(both or neither, enforced by a CHECK constraint) and `delivery_contact_number`.
+
+- Coordinates are stored **only when the customer shared a pin for that
+  delivery**, rounded to four decimal places (about 11 m). They are never copied
+  from the location used to find a branch.
+- Staff and Branch Managers see "Location not shared. Use the typed address"
+  when there is no pin (`partials/_delivery_location.html`, on the order detail
+  and the hand-over form).
+- The earlier statement "coordinates are never persisted to the database by
+  this flow" remains true of the **branch-finding** flow. The delivery pin is a
+  separate, explicit step.
+
+### 4. Removing a saved location
+
+Settings → Addresses has **Remove saved location** on an address that has a pin
+(`accounts:address_remove_location`, POST). It clears only latitude and
+longitude; the typed address and its PSGC codes stay, so branch ranking falls
+back to barangay/city as already documented above.

@@ -66,6 +66,7 @@ urlpatterns = [
     path('profile/addresses/', views.addresses_view, name='addresses'),
     path('profile/addresses/add/', views.address_create, name='address_create'),
     path('profile/addresses/<int:pk>/edit/', views.address_edit, name='address_edit'),
+    path('profile/addresses/<int:pk>/remove-location/', views.address_remove_location, name='address_remove_location'),
     path('profile/addresses/<int:pk>/delete/', views.address_delete, name='address_delete'),
     path('profile/addresses/<int:pk>/set-default/', views.address_set_default, name='address_set_default'),
 

@@ -3,10 +3,13 @@ backing the cascading address dropdowns. Data is a static PSGC-derived
 snapshot in accounts/data/ph_addresses/ (no external calls, no API key).
 """
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent / 'data' / 'ph_addresses'
+
+_BARANGAY_PREFIX = re.compile(r'^(brgy|bgy|barangay)\b\.?\s*', re.IGNORECASE)
 
 
 @lru_cache(maxsize=1)
@@ -93,3 +96,51 @@ def compose_address(region='', province='', city='', barangay='', street_detail=
         region=region, province=province, city=city,
         barangay=barangay, street_detail=street_detail,
     )
+
+
+def _plain_place(text):
+    """Lower-cased place name without the "City of" / "Municipality of" dressing."""
+    value = ' '.join((text or '').casefold().split())
+    for prefix in ('city of ', 'municipality of '):
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+    for suffix in (' city', ' municipality'):
+        if value.endswith(suffix):
+            value = value[:-len(suffix)]
+    return value
+
+
+def match_places(city_text, barangay_text=''):
+    """Best-effort PSGC codes for a municipality and barangay typed as words.
+
+    Returns ``{}`` unless exactly one municipality in the snapshot has that
+    name (a handful repeat across provinces, and a guess there would file the
+    address under the wrong province). The barangay code is added only when it
+    matches inside that municipality. Used when a typed checkout address is
+    saved to the account, so the saved row has the same structured fields the
+    address picker would have given it.
+    """
+    wanted = _plain_place(city_text)
+    if not wanted:
+        return {}
+    found = [c for c in _load('city') if _plain_place(c['city_name']) == wanted]
+    if len(found) != 1:
+        return {}
+    city = found[0]
+    province = next(
+        (p for p in _load('province') if p['province_code'] == city['province_code']), None
+    )
+    codes = {
+        'region': province['region_code'] if province else '',
+        'province': city['province_code'],
+        'city': city['city_code'],
+    }
+    barangay = _plain_place(_BARANGAY_PREFIX.sub('', barangay_text or ''))
+    if barangay:
+        hits = [
+            b for b in _load('barangay')
+            if b['city_code'] == city['city_code'] and _plain_place(b['brgy_name']) == barangay
+        ]
+        if len(hits) == 1:
+            codes['barangay'] = hits[0]['brgy_code']
+    return codes

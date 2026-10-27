@@ -399,6 +399,10 @@ def nav_selected_branch(request):
         return {
             "nav_selected_branch": branch,
             "nav_branch_distance": distance,
+            # True when the shopper chose this branch themselves, so the
+            # status line can say so and offer "Change branch" instead of
+            # "Update location".
+            "nav_branch_is_manual": bool(branch) and request.session.get('branch_mode') == 'manual',
         }
     except Exception:
         return {}

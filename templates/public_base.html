@@ -373,11 +373,17 @@ white-on-white.
       {% block shop_status %}
       <span class="shop-status">
         <span class="status-dot" aria-hidden="true"></span>
-        {% if nav_selected_branch %}
+        {% if nav_selected_branch and nav_branch_is_manual %}
+          {% t "Shopping at" %} <strong>{{ nav_selected_branch.branch_name }}</strong>{% if nav_branch_distance != None %} · ~{{ nav_branch_distance|floatformat:1 }} km straight-line{% endif %}
+          <span class="shop-status-tag">{% t "You chose this" %}</span>
+          <a href="{% url 'orders:select_branch' %}?mode=manual">{% t "Change branch" %}</a>
+        {% elif nav_selected_branch %}
           {% t "Fulfilled by" %} <strong>{{ nav_selected_branch.branch_name }}</strong>{% if nav_branch_distance != None %} · ~{{ nav_branch_distance|floatformat:1 }} km straight-line{% endif %}
           <a href="{% url 'orders:select_branch' %}">{% t "Update location" %}</a>
+          · <a href="{% url 'orders:select_branch' %}?mode=manual">{% t "Choose a branch" %}</a>
         {% else %}
           <a href="{% url 'orders:select_branch' %}">{% t "Set location for automatic fulfillment" %}</a>
+          · <a href="{% url 'orders:select_branch' %}?mode=manual">{% t "Choose a branch" %}</a>
         {% endif %}
       </span>
       {% endblock %}

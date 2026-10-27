@@ -1,0 +1,23 @@
+{% comment %}
+The location line under a Delivery order's address, for Staff and Branch
+Managers: the pin when the customer shared one, otherwise a plain instruction
+to go by the typed address. Orders placed before pins were kept have no pin
+and read the same way, which is accurate: no location was shared with the
+store.
+
+Context: txn — a SalesTransaction. Renders nothing for Pickup and walk-in
+sales, which never carry an address.
+{% endcomment %}
+{% if txn.fulfillment_type == "Delivery" %}
+  {% if txn.has_delivery_pin %}
+    <div class="gv-meta" data-delivery-location="pinned">
+      Pinned location shared · {{ txn.delivery_latitude|floatformat:4 }}, {{ txn.delivery_longitude|floatformat:4 }}
+      · <a href="{{ txn.delivery_map_url }}" target="_blank" rel="noopener noreferrer">Open in map</a>
+    </div>
+  {% else %}
+    <div class="gv-meta" data-delivery-location="not-shared"><strong>Location not shared. Use the typed address</strong></div>
+  {% endif %}
+  {% if txn.delivery_contact_number %}
+    <div class="gv-meta">Contact: {{ txn.delivery_contact_number }}</div>
+  {% endif %}
+{% endif %}

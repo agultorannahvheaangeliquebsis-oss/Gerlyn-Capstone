@@ -45,7 +45,7 @@
         <div><dt>Customer</dt><dd>{{ customer_name }}</dd></div>
         <div><dt>Branch</dt><dd>{{ transaction.branch.branch_name }}</dd></div>
         <div><dt>{% if transaction.fulfillment_type == "Delivery" %}Deliver to{% else %}Collection{% endif %}</dt>
-          <dd>{% if transaction.fulfillment_type == "Delivery" %}{{ transaction.delivery_address|default:"—" }}{% else %}Pick up at {{ transaction.branch.branch_name }}{% endif %}</dd></div>
+          <dd>{% if transaction.fulfillment_type == "Delivery" %}{{ transaction.delivery_address|default:"—" }}{% include "partials/_delivery_location.html" with txn=transaction %}{% else %}Pick up at {{ transaction.branch.branch_name }}{% endif %}</dd></div>
         <div><dt>Items</dt><dd>{% for item in items %}{{ item.quantity_sold }} × {{ item.product.product_name|default:"(removed product)" }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd></div>
         <div><dt>Total</dt><dd class="strong">₱{{ transaction.total_amount|floatformat:2 }}</dd></div>
         <div><dt>Payment</dt><dd>{{ transaction.mode_of_payment }} · {% if billing %}{{ billing.status }}{% else %}No billing record{% endif %}</dd></div>

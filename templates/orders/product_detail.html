@@ -109,7 +109,7 @@ honest placeholder rather than being left out.
         </p>
       {% else %}
         {% if not selected_branch_id %}
-        <p class="pdp-note">Choose a branch to buy? You no longer have to — we automatically assign one branch that can fulfill your whole cart.</p>
+        <p class="pdp-note">Choose a branch to buy? You no longer have to — we automatically assign one branch that can fulfill your whole cart. Prefer a specific one? <a href="{% url 'orders:select_branch' %}?mode=manual">Choose a branch</a>.</p>
         {% endif %}
         {% comment %}
         One <form>, two submits, differing only in where the shopper lands:

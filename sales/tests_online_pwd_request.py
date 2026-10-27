@@ -160,8 +160,11 @@ class CheckoutRequestTests(PwdRequestFixture, TestCase):
         # A saved address, so checkout gets past its own delivery checks and
         # the refusal under test is the request's.
         Address.objects.create(user=self.shopper, is_default=True, text='12 Real St')
+        # A contact number too: a delivery now needs one (orders.delivery), and
+        # it is checked before the request is.
         response = self.check_out(
-            fulfillment_type='Delivery', mode_of_payment='Cash on Delivery'
+            fulfillment_type='Delivery', mode_of_payment='Cash on Delivery',
+            addr_contact='0917 123 4567',
         )
 
         self.assertEqual(SalesTransaction.objects.count(), 0)
