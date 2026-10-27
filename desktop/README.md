@@ -13,7 +13,7 @@ What the desktop app adds:
 | Pinned to one server | The window can only show your GerlynPLUS server; other links open in the default browser |
 | Local front-end resources | The site's CSS/JS/images, the icon script and Roboto are bundled in the installer, so pages render without internet |
 | Offline launch | If the server cannot be reached, a local page lists the saved pages and any changes waiting to sync, and returns to the app on its own |
-| Offline work | The web app's own offline queue (see *Offline mode* in the root README) runs unchanged inside the shell |
+| Offline work | The web app's own offline queue (see *Offline mode* in [docs/OPERATIONS.md](../docs/OPERATIONS.md#offline-mode)) runs unchanged inside the shell |
 | Hardened shell | No Node in pages, camera only (barcode scanner), no other permissions, single instance |
 
 ## How offline works (and why there is no second queue)

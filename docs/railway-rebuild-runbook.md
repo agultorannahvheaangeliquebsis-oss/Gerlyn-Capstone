@@ -5,7 +5,7 @@ with the day-by-day build from `rebuild_store_records`, leaving every product
 picture (files and rows) exactly as it is.
 
 ```
-python manage.py rebuild_store_records --yes --allow-remote --no-images \
+/opt/venv/bin/python manage.py rebuild_store_records --yes --allow-remote --no-images \
     --start 2026-09-01 --end "2026-10-20 08:00"
 ```
 
@@ -37,23 +37,40 @@ build starts, so a build that fails part-way leaves the database emptied.
 3. **Check there is room.** Everything the rebuild rewrites is about 25 MB on
    disk (measured locally for 1 Sep to 20 Oct). The new window is shorter than
    an Aug-1 history, so tables should not grow, but the single-transaction wipe
-   needs undo space and, if binary logging is on, the log records every deleted
-   and inserted row (roughly 50 to 100 MB, kept 30 days by default).
-   About 200 MB free is comfortable; under about 100 MB is risky.
+   needs undo space (roughly 20 to 30 MB) and, if binary logging is on, the log
+   records every deleted and inserted row (roughly 50 to 100 MB, kept 30 days by
+   default). The MySQL volume's used/free figure is on the MySQL service's
+   Metrics tab in Railway; the web shell cannot see that disk (`/app/media` is
+   a different volume). With binary logging off, about 100 MB free is enough;
+   with it on, about 200 MB. Under about 60 MB free: stop and grow the volume.
 
-   In the MySQL shell (read-only):
+   On 2026-10-16 the Railway MySQL volume was 500 MB with about 390 MB used
+   (redo log 100 MB, undo 2 x 16 MB, the `mysql` schema 44 MB, table files
+   padded above their data), binary logging was **off**, and the whole
+   application schema was about 40 MB.
 
-   ```sql
-   SET SESSION information_schema_stats_expiry = 0;   -- otherwise sizes can be a day stale
-   SELECT table_name, table_rows AS est_rows,
-          ROUND(data_length/1048576,1)  AS data_mb,
-          ROUND(index_length/1048576,1) AS index_mb,
-          ROUND(data_free/1048576,1)    AS free_in_file_mb
-   FROM information_schema.tables
-   WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'
-   ORDER BY data_length + index_length DESC LIMIT 15;
-   SHOW BINARY LOGS;                                  -- add up File_size
-   SHOW VARIABLES LIKE 'binlog_expire_logs_seconds';
+   Read-only, from the web shell (no `mysql` client needed):
+
+   ```bash
+   cd /app
+   /opt/venv/bin/python manage.py shell <<'EOF'
+   from django.db import connection
+   cur = connection.cursor()
+   def q(sql):
+       cur.execute(sql)
+       return cur.fetchall()
+   q("SET SESSION information_schema_stats_expiry = 0")   # otherwise sizes can be a day stale
+   print("schemas (MB):", q("SELECT table_schema, ROUND(SUM(data_length+index_length)/1048576,1) FROM information_schema.tables GROUP BY table_schema ORDER BY 2 DESC"))
+   print("top tables (name, est_rows, data_mb, index_mb):")
+   for r in q("SELECT table_name, table_rows, ROUND(data_length/1048576,1), ROUND(index_length/1048576,1) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type='BASE TABLE' ORDER BY data_length+index_length DESC LIMIT 15"):
+       print("  ", r)
+   print(q("SHOW VARIABLES LIKE 'log_bin'"), q("SHOW VARIABLES LIKE 'binlog_expire_logs_seconds'"))
+   try:
+       logs = q("SHOW BINARY LOGS")
+       print("binlogs:", len(logs), "files,", round(sum(int(r[1]) for r in logs)/1048576, 1), "MB")
+   except Exception as e:
+       print("SHOW BINARY LOGS failed:", e)    # error 1381 = binary logging is off
+   EOF
    ```
 
    Expected biggest tables (local, after a build): `inventory_stockmovement`
@@ -73,21 +90,23 @@ build starts, so a build that fails part-way leaves the database emptied.
 ## 1. Record the before-state
 
 ```bash
+cd /app
 # products, pictures, a fingerprint of (id, product, path), products without a primary picture
-python manage.py shell -c "
+/opt/venv/bin/python manage.py shell -c "
 import hashlib
 from inventory.models import Product, ProductImage as I
 rows = sorted(I.objects.values_list('id','product_id','image'))
 print(Product.objects.count(), len(rows), hashlib.sha256(repr(rows).encode()).hexdigest()[:16],
       Product.objects.exclude(images__is_primary=True).count())"
 
-# which storage is live
-python manage.py shell -c "
+# which storage is live: read the FIRST value (True = Cloudinary). The class
+# name is always DefaultStorage, Django's lazy wrapper, so it tells you nothing.
+/opt/venv/bin/python manage.py shell -c "
 from django.conf import settings as s; from django.core.files.storage import default_storage as d
 print(s.USE_CLOUDINARY, s.MEDIA_ROOT, type(d).__name__)"
 
-# files on the volume (skip if Cloudinary)
-find /app/media/products -type f | wc -l; du -sb /app/media/products
+# files on the volume (only meaningful if USE_CLOUDINARY is False)
+ls -la /app/media; find /app/media/products -type f 2>/dev/null | wc -l
 ```
 
 The last number is how many products have no picture flagged primary. It is
@@ -96,24 +115,39 @@ with unflagged or uploaded pictures is fine. (An older release without the
 `verify()` guard would fail its final report *after* committing the data.)
 
 Also run the picture-load check from step 5 now, so a picture that already
-404s is not blamed on the rebuild.
+404s is not blamed on the rebuild. On Cloudinary an empty `/app/media/products`
+is expected; the volume then holds only `payment_proofs`.
 
 ## 2. Back up
 
 ```bash
-python manage.py run_backup --trigger manual
+cd /app
+/opt/venv/bin/python manage.py run_backup --trigger manual
 ```
 
 Confirm a SUCCESS run on the Backups page. That archive is encrypted and goes
 to `/app/tmp_backups` (container disk, lost on redeploy) unless `B2_BUCKET` is
-set. So also take a plain dump from a workstation with the MySQL 9.x client,
-against the MySQL service's `MYSQL_PUBLIC_URL`:
+set. So also take a plain dump on a workstation with the MySQL 9.x client,
+against the MySQL service's **public** URL (`MYSQL_PUBLIC_URL`; the
+`*.railway.internal` host only works from inside Railway). PowerShell:
 
-```
-mysqldump --single-transaction --no-tablespaces --result-file=before_rebuild.sql <db>
+```powershell
+$u = [uri]"PASTE_MYSQL_PUBLIC_URL_HERE"
+$user, $pass = $u.UserInfo -split ':', 2
+$env:MYSQL_PWD = [uri]::UnescapeDataString($pass)
+$file = "$HOME\railway_before_rebuild_$(Get-Date -Format yyyy-MM-dd).sql"
+& "C:\Program Files\MySQL\MySQL Server 9.7\bin\mysqldump.exe" `
+  -h $u.Host -P $u.Port -u ([uri]::UnescapeDataString($user)) `
+  --single-transaction --no-tablespaces --set-gtid-purged=OFF `
+  --result-file=$file $u.AbsolutePath.TrimStart('/')
+Remove-Item Env:MYSQL_PWD
+(Get-Item $file).Length / 1MB; Get-Content $file -Tail 1   # expect -- Dump completed
 ```
 
-Do not use XAMPP's client: it cannot do `caching_sha2_password`.
+Do not use XAMPP's client: it cannot do `caching_sha2_password`. If it hangs
+for a couple of minutes, press Ctrl+C and run it again; Railway's public proxy
+sometimes stalls a TLS session. Do not leave the connection URL in an
+environment variable afterwards; it contains the database password.
 
 ## 3. Run it, detached
 
@@ -122,13 +156,29 @@ so detach the process:
 
 ```bash
 cd /app
-nohup python manage.py rebuild_store_records --yes --allow-remote --no-images \
+nohup /opt/venv/bin/python manage.py rebuild_store_records --yes --allow-remote --no-images \
     --start 2026-09-01 --end "2026-10-20 08:00" > /tmp/rebuild.log 2>&1 &
-tail -f /tmp/rebuild.log
 ```
 
+Then wait for it. This blocks until the process exits and prints the result;
+Ctrl+C or a closed tab ends only the wait, never the rebuild:
+
+```bash
+while pgrep -f rebuild_store_records > /dev/null; do sleep 20; done; tail -n 30 /tmp/rebuild.log
+```
+
+To look without waiting: `pgrep -af rebuild_store_records || echo finished`.
+
+**The log stays empty until the end.** Python buffers output written to a file,
+so the progress lines appear only when the process exits. The log containing
+just `nohup: ignoring input` is normal; a real failure writes a traceback at
+once. Judge progress by whether the process is alive and by the MySQL volume
+graph, which should stay under about 470 MB.
+
 A local run took 15 minutes; allow two to three times that on Railway. Do not
-start a second rebuild or a backup while it runs.
+start a second rebuild or a backup while it runs, and do not push to the
+branch Railway deploys from: a deploy restarts the container and kills the
+process mid-build.
 
 ## 4. Check the log
 
@@ -145,37 +195,47 @@ start a second rebuild or a backup while it runs.
 **Products and pictures unchanged.** Re-run the fingerprint from step 1. All
 four values must be identical to before.
 
-**Pictures load, nothing was re-uploaded:**
+**Pictures load, nothing was re-uploaded.** Request every picture's URL. This
+works for both storages and needs no extra tools (on Cloudinary
+`default_storage.exists()` costs an API call per file, so do not use it):
 
 ```bash
-python manage.py shell -c "
-from django.core.files.storage import default_storage as d
+/opt/venv/bin/python manage.py shell -c "
+import urllib.request
 from inventory.models import ProductImage as I
-print('missing files:', sum(not d.exists(i.image.name) for i in I.objects.all()))
-for i in I.objects.order_by('?')[:3]: print(i.image.url)"
-
-curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}\n' \
-    https://$RAILWAY_PUBLIC_DOMAIN<url>          # expect 200 image/jpeg
-find /app/media/products -type f | wc -l; du -sb /app/media/products   # same as step 1
+bad = []
+for i in I.objects.all():
+    try:
+        ok = urllib.request.urlopen(urllib.request.Request(i.image.url, method='HEAD'), timeout=20).status == 200
+    except Exception:
+        ok = False
+    if not ok: bad.append((i.id, i.image.name))
+print('checked', I.objects.count(), 'bad', len(bad), bad[:5])"
 ```
 
-Then open the storefront catalogue and confirm the pictures render.
+Expect `checked 105 bad 0 []` (the count is however many picture rows there
+were in step 1). On filesystem storage also compare
+`find /app/media/products -type f | wc -l` with step 1. Then open the
+storefront catalogue and confirm the pictures render.
 
 **Sales window:**
 
 ```bash
-python manage.py shell -c "
+/opt/venv/bin/python manage.py shell <<'EOF'
 import datetime as dt
 from django.utils import timezone as tz
 from core.store_data.history import MANILA
 from sales.models import SalesTransaction as T
-cut = dt.datetime(2026,10,20,8,0,tzinfo=MANILA)
-print(T.objects.count(), tz.localtime(T.objects.latest('transaction_date').transaction_date),
-      T.objects.filter(transaction_date__gt=cut).count())"
+cut = dt.datetime(2026, 10, 20, 8, 0, tzinfo=MANILA)
+first = T.objects.earliest('transaction_date').transaction_date
+last = T.objects.latest('transaction_date').transaction_date
+print("count", T.objects.count(), "| first", tz.localtime(first), "| latest", tz.localtime(last), "| after cutoff", T.objects.filter(transaction_date__gt=cut).count())
+EOF
 ```
 
-Expect `4341`, a latest date on 20 Oct before 08:00, and `0` after the cutoff.
-The Sales list sorted newest first should show 20 Oct at the top.
+Expect `count 4341`, `first` on 2026-09-01, `latest` on 20 Oct before 08:00,
+and `after cutoff 0`. The Sales list sorted newest first should show 20 Oct at
+the top.
 
 "No future-dated sales" means nothing after `--end`, not nothing after the
 server clock. While the server clock is earlier than the `--end` moment, the
@@ -208,6 +268,9 @@ environment.
 - Not set: `FileSystemStorage` at `MEDIA_ROOT` (`BASE_DIR/media`, `/app/media`
   on Railway), which must be a mounted volume or the files vanish on every
   redeploy. `/media/` serves only `products`, `categories` and `store` paths.
+
+Production was observed on 2026-10-16 with `USE_CLOUDINARY=True`: pictures on
+Cloudinary, and the `/app/media` volume holding only `payment_proofs`.
 
 With `--no-images`, neither the files nor the rows are touched in either case.
 One exception: products that are not in the master list are still deleted by
