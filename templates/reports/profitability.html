@@ -184,7 +184,7 @@ cost, less running costs.
   </div>
   <table class="gv-table">
     <thead>
-      <tr><th>Branch</th><th class="num">Net sales</th><th class="num">COGS</th><th class="num">Gross profit</th>
+      <tr><th>Branch</th><th class="num">Gross sales</th><th class="num">COGS</th><th class="num">Gross profit</th>
           <th class="num">Gross margin</th><th class="num">Expenses</th><th class="num">Net profit</th>
           <th class="num">Net margin</th><th>Result</th></tr>
     </thead>
@@ -192,7 +192,7 @@ cost, less running costs.
       {% for b in result.branches %}
       <tr>
         <td data-label="Branch" class="strong">{{ b.label }}</td>
-        <td data-label="Net sales" class="num">{{ b.net_sales|peso }}</td>
+        <td data-label="Gross sales" class="num">{{ b.gross_sales|peso }}</td>
         <td data-label="COGS" class="num">{{ b.cogs|peso }}</td>
         <td data-label="Gross profit" class="num">{{ b.gross_profit|peso }}</td>
         <td data-label="Gross margin" class="num">{{ b.gross_margin|pct }}</td>
@@ -209,7 +209,7 @@ cost, less running costs.
     <tfoot>
       <tr class="pf-total">
         <td data-label="Branch" class="strong">All branches</td>
-        <td data-label="Net sales" class="num strong">{{ result.all_branches.net_sales|peso }}</td>
+        <td data-label="Gross sales" class="num strong">{{ result.all_branches.gross_sales|peso }}</td>
         <td data-label="COGS" class="num strong">{{ result.all_branches.cogs|peso }}</td>
         <td data-label="Gross profit" class="num strong">{{ result.all_branches.gross_profit|peso }}</td>
         <td data-label="Gross margin" class="num strong">{{ result.all_branches.gross_margin|pct }}</td>
