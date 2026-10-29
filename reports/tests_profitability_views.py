@@ -77,6 +77,17 @@ class PageTests(ProfitFixture):
         self.assertContains(response, 'data-net-profit="₱310.00"')
         self.assertIsNotNone(response.context['chart'])
 
+    def test_the_gross_sales_card_shows_gross_sales_before_refunds(self):
+        response = self.get(self.owner)
+        totals = response.context['totals']
+        self.assertEqual(totals.gross_sales, D('2100'))
+        self.assertEqual(totals.net_sales, D('1800'))
+        self.assertContains(
+            response,
+            '<span class="label">Gross Sales</span>\n    <span class="value">₱2,100.00</span>',
+            html=False,
+        )
+
     def test_an_empty_period_renders_without_error(self):
         response = self.get(self.owner, date_from='2001-01-01', date_to='2001-01-31')
         self.assertEqual(response.status_code, 200)
